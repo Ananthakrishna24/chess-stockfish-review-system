@@ -20,7 +20,7 @@ export class ChessGameManager {
       this.chess.loadPgn(pgn);
       this.moveHistory = this.extractMoves();
       
-      const gameInfo = this.extractGameInfo(pgn);
+      const gameInfo = this.extractGameInfo();
       
       return {
         moves: this.moveHistory,
@@ -59,7 +59,7 @@ export class ChessGameManager {
     return moves;
   }
 
-  private extractGameInfo(pgn: string): GameInfo {
+  private extractGameInfo(): GameInfo {
     const headers = this.chess.header();
     
     return {

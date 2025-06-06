@@ -15,28 +15,54 @@ export default function ChessSquare({
   onClick,
   children
 }: ChessSquareProps) {
-  const baseClasses = 'w-12 h-12 flex items-center justify-center relative cursor-pointer transition-colors';
+  const baseClasses = 'w-14 h-14 flex items-center justify-center relative cursor-pointer transition-all duration-200 hover:brightness-110';
   
-  const colorClasses = {
-    light: 'bg-amber-50 hover:bg-amber-100',
-    dark: 'bg-green-600 hover:bg-green-700'
+  const getSquareStyle = () => {
+    if (color === 'light') {
+      return {
+        backgroundColor: 'var(--chess-light-square)',
+      };
+    } else {
+      return {
+        backgroundColor: 'var(--chess-dark-square)',
+      };
+    }
   };
 
   const highlightClasses = isHighlighted 
-    ? 'ring-2 ring-yellow-400 ring-inset' 
+    ? 'ring-2 ring-inset' 
     : '';
+
+  const highlightStyle = isHighlighted 
+    ? { ringColor: 'var(--chess-accent)' }
+    : {};
 
   return (
     <div
-      className={`${baseClasses} ${colorClasses[color]} ${highlightClasses}`}
+      className={`${baseClasses} ${highlightClasses}`}
+      style={{
+        ...getSquareStyle(),
+        ...highlightStyle
+      }}
       onClick={onClick}
       role="button"
       tabIndex={0}
       aria-label={`Square ${square}`}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          onClick?.();
+        }
+      }}
     >
       {children}
       {isHighlighted && (
-        <div className="absolute inset-0 bg-yellow-400 bg-opacity-30 pointer-events-none" />
+        <div 
+          className="absolute inset-0 pointer-events-none rounded-sm"
+          style={{
+            backgroundColor: 'var(--chess-accent)',
+            opacity: 0.2
+          }}
+        />
       )}
     </div>
   );

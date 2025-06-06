@@ -5,7 +5,7 @@ import { EngineEvaluation, AnalysisProgress, StockfishConfig } from '@/types/ana
 import { StockfishEngine } from '@/utils/stockfish';
 
 export function useStockfish(config?: Partial<StockfishConfig>) {
-  const [engine, setEngine] = useState<StockfishEngine | null>(null);
+  const [, setEngine] = useState<StockfishEngine | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [error, setError] = useState<string | null>(null);

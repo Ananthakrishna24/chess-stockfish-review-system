@@ -2,8 +2,8 @@
 
 import React from 'react';
 import { Chess } from 'chess.js';
-import { BoardOrientation, ChessPiece as ChessPieceType } from '@/types/chess';
-import { parseSquareColor, getPieceUnicode } from '@/utils/chess';
+import { BoardOrientation } from '@/types/chess';
+import { parseSquareColor } from '@/utils/chess';
 import ChessSquare from './ChessSquare';
 import ChessPiece from './ChessPiece';
 
@@ -38,14 +38,15 @@ export default function ChessBoard({
       {/* Board container with coordinates */}
       <div className="relative inline-block">
         {/* Top coordinates */}
-        <div className="flex mb-1">
-          <div className="w-6 h-6"></div> {/* Corner space */}
+        <div className="flex mb-2">
+          <div className="w-8 h-8"></div> {/* Corner space */}
           {files.map((file) => (
             <div
               key={file}
-              className="w-12 h-6 flex items-center justify-center text-sm font-medium text-gray-600"
+              className="w-14 h-8 flex items-center justify-center text-sm font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
             >
-              {file}
+              {file.toUpperCase()}
             </div>
           ))}
         </div>
@@ -57,7 +58,8 @@ export default function ChessBoard({
             {ranks.map((rank) => (
               <div
                 key={rank}
-                className="w-6 h-12 flex items-center justify-center text-sm font-medium text-gray-600"
+                className="w-8 h-14 flex items-center justify-center text-sm font-semibold"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 {rank}
               </div>
@@ -65,9 +67,15 @@ export default function ChessBoard({
           </div>
 
           {/* The actual chess board */}
-          <div className="grid grid-cols-8 border-2 border-gray-800 rounded-lg overflow-hidden">
-            {ranks.map((rank, rankIndex) =>
-              files.map((file, fileIndex) => {
+          <div 
+            className="grid grid-cols-8 rounded-lg overflow-hidden shadow-lg"
+            style={{
+              border: '3px solid var(--chess-board-border)',
+              boxShadow: 'var(--shadow-lg)'
+            }}
+          >
+            {ranks.map((rank) =>
+              files.map((file) => {
                 const square = file + rank;
                 const squareColor = parseSquareColor(square);
                 const piece = board[7 - parseInt(rank) + 1]?.[file.charCodeAt(0) - 97];
@@ -98,7 +106,8 @@ export default function ChessBoard({
             {ranks.map((rank) => (
               <div
                 key={`r-${rank}`}
-                className="w-6 h-12 flex items-center justify-center text-sm font-medium text-gray-600"
+                className="w-8 h-14 flex items-center justify-center text-sm font-semibold"
+                style={{ color: 'var(--text-secondary)' }}
               >
                 {rank}
               </div>
@@ -107,14 +116,15 @@ export default function ChessBoard({
         </div>
 
         {/* Bottom coordinates */}
-        <div className="flex mt-1">
-          <div className="w-6 h-6"></div> {/* Corner space */}
+        <div className="flex mt-2">
+          <div className="w-8 h-8"></div> {/* Corner space */}
           {files.map((file) => (
             <div
               key={`b-${file}`}
-              className="w-12 h-6 flex items-center justify-center text-sm font-medium text-gray-600"
+              className="w-14 h-8 flex items-center justify-center text-sm font-semibold"
+              style={{ color: 'var(--text-secondary)' }}
             >
-              {file}
+              {file.toUpperCase()}
             </div>
           ))}
         </div>

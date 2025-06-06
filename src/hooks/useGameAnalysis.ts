@@ -163,7 +163,7 @@ export function useGameAnalysis() {
           endgameAccuracy: phaseAnalysis.endgameAccuracy
         },
         gameResult: {
-          result: chessGame.gameState.gameInfo.result as any || '*',
+          result: (chessGame.gameState.gameInfo.result as string) || '*',
           termination: chessGame.gameState.gameInfo.termination || 'Unknown',
           winningAdvantage: Math.max(...evaluations.map(e => Math.abs(e.score)))
         }

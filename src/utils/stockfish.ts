@@ -98,7 +98,6 @@ export class StockfishEngine {
     playedMove: string,
     bestMove: string
   ): MoveClassification {
-    const scoreDiff = Math.abs(positionBefore.score - positionAfter.score);
     const isPlayerTurn = positionBefore.score > 0; // Assuming white to move
     
     // Adjust score based on whose turn it is
@@ -251,7 +250,7 @@ export class StockfishEngine {
     return criticalMoments;
   }
 
-  analyzeGamePhases(moves: any[], evaluations: EngineEvaluation[]): {
+  analyzeGamePhases(moves: unknown[], evaluations: EngineEvaluation[]): {
     opening: number;
     middlegame: number;
     endgame: number;

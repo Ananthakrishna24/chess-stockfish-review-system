@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { GameState, ChessMove } from '@/types/chess';
+import { GameState } from '@/types/chess';
 import { ChessGameManager } from '@/utils/chess';
 
 export function useChessGame() {
