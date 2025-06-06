@@ -7,6 +7,8 @@ import GameControls from '@/components/chess/GameControls';
 import { PlayerStats } from '@/components/analysis/PlayerStats';
 import { EvaluationChart } from '@/components/analysis/EvaluationChart';
 import { GameSummary } from '@/components/analysis/GameSummary';
+import { ExportOptions } from '@/components/analysis/ExportOptions';
+import { AdvancedAnalysis } from '@/components/analysis/AdvancedAnalysis';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Input';
@@ -37,8 +39,8 @@ export default function Home() {
     gameAnalysis,
     isAnalyzingGame,
     analysisProgress,
-    whiteAccuracy,
-    blackAccuracy,
+    // whiteAccuracy,
+    // blackAccuracy,
     currentPositionEvaluation,
     
     // Engine state
@@ -314,6 +316,25 @@ export default function Home() {
                 onMoveClick={goToMove}
               />
             )}
+
+            {/* Export Options */}
+            {gameState && (
+              <ExportOptions
+                gameState={gameState}
+                gameAnalysis={gameAnalysis}
+                currentPosition={currentPosition}
+              />
+            )}
+
+            {/* Advanced Analysis */}
+            {gameState && (
+              <AdvancedAnalysis
+                gameState={gameState}
+                gameAnalysis={gameAnalysis}
+                currentPosition={currentPosition}
+                currentMoveIndex={currentMoveIndex}
+              />
+            )}
           </div>
         </div>
 
@@ -345,7 +366,7 @@ export default function Home() {
                 isWinner={gameState.gameInfo.result === '0-1'}
               />
             </div>
-          </div>
+        </div>
         )}
       </main>
     </div>

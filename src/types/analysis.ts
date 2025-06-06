@@ -129,4 +129,16 @@ export interface CriticalPosition {
   afterEval: number;
   advantage: 'white' | 'black';
   description: string;
+}
+
+export interface TimeAnalysis {
+  timeSpent: number;
+  averageTimePerMove: number;
+  criticalMoments: number[];
+  timeDistribution: {
+    opening: number;
+    middlegame: number;
+    endgame: number;
+  };
+  recommendations: string[];
 } 
