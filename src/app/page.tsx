@@ -4,6 +4,9 @@ import React from 'react';
 import ChessBoard from '@/components/chess/ChessBoard';
 import MoveList from '@/components/chess/MoveList';
 import GameControls from '@/components/chess/GameControls';
+import { PlayerStats } from '@/components/analysis/PlayerStats';
+import { EvaluationChart } from '@/components/analysis/EvaluationChart';
+import { GameSummary } from '@/components/analysis/GameSummary';
 import { Card, CardHeader, CardContent, CardTitle, CardDescription } from '@/components/ui/Card';
 import Button from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Input';
@@ -285,124 +288,22 @@ export default function Home() {
 
           {/* Analysis Panel */}
           <div className="space-y-6">
-            {/* Game Info */}
-            {gameState && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Game Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center space-x-2">
-                        <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center">
-                          ♙
-                        </div>
-                        <div>
-                          <div className="font-medium">{gameState.gameInfo.white}</div>
-                          <div className="text-sm text-gray-500">
-                            {gameState.gameInfo.whiteRating || 'Unrated'}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="font-bold text-lg">
-                          {whiteAccuracy.toFixed(1)}
-                        </div>
-                        <div className="text-sm text-gray-500">Accuracy</div>
-                      </div>
-                    </div>
-
-                    <div className="border-t pt-4">
-                      <div className="flex justify-between items-center">
-                        <div className="flex items-center space-x-2">
-                          <div className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center text-white">
-                            ♟
-                          </div>
-                          <div>
-                            <div className="font-medium">{gameState.gameInfo.black}</div>
-                            <div className="text-sm text-gray-500">
-                              {gameState.gameInfo.blackRating || 'Unrated'}
-                            </div>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-bold text-lg">
-                            {blackAccuracy.toFixed(1)}
-                          </div>
-                          <div className="text-sm text-gray-500">Accuracy</div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Move Quality Stats */}
-            {gameAnalysis && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Move Analysis</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {[
-                      { type: 'brilliant', color: 'bg-cyan-500', white: gameAnalysis.whiteStats.brilliant, black: gameAnalysis.blackStats.brilliant },
-                      { type: 'great', color: 'bg-blue-500', white: gameAnalysis.whiteStats.great, black: gameAnalysis.blackStats.great },
-                      { type: 'best', color: 'bg-green-500', white: gameAnalysis.whiteStats.best, black: gameAnalysis.blackStats.best },
-                      { type: 'good', color: 'bg-green-400', white: gameAnalysis.whiteStats.good, black: gameAnalysis.blackStats.good },
-                      { type: 'inaccuracy', color: 'bg-yellow-500', white: gameAnalysis.whiteStats.inaccuracy, black: gameAnalysis.blackStats.inaccuracy },
-                      { type: 'mistake', color: 'bg-orange-500', white: gameAnalysis.whiteStats.mistake, black: gameAnalysis.blackStats.mistake },
-                      { type: 'blunder', color: 'bg-red-500', white: gameAnalysis.whiteStats.blunder, black: gameAnalysis.blackStats.blunder }
-                    ].map(({ type, color, white, black }) => (
-                      <div key={type} className="flex justify-between items-center">
-                        <div className="flex items-center space-x-2">
-                          <div className={`w-3 h-3 ${color} rounded-full`}></div>
-                          <span className="text-sm capitalize">{type}</span>
-                        </div>
-                        <div className="flex space-x-4">
-                          <span className="text-sm font-medium">{white}</span>
-                          <span className="text-sm font-medium">{black}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Opening Analysis */}
-            {gameAnalysis?.openingAnalysis && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Opening Analysis</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Opening</span>
-                      <span className="text-sm font-medium">
-                        {gameAnalysis.openingAnalysis.name}
-                      </span>
-                    </div>
-                    {gameAnalysis.openingAnalysis.eco && (
-                      <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">ECO</span>
-                        <span className="text-sm font-medium">
-                          {gameAnalysis.openingAnalysis.eco}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-between">
-                      <span className="text-sm text-gray-600">Accuracy</span>
-                      <span className="text-sm font-medium">
-                        {gameAnalysis.openingAnalysis.accuracy.toFixed(1)}%
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+            {/* Game Summary */}
+            {gameAnalysis && gameState && (
+              <GameSummary
+                gameAnalysis={gameAnalysis}
+                gameInfo={{
+                  white: gameState.gameInfo.white,
+                  black: gameState.gameInfo.black,
+                  whiteRating: gameState.gameInfo.whiteRating,
+                  blackRating: gameState.gameInfo.blackRating,
+                  result: gameState.gameInfo.result,
+                  date: gameState.gameInfo.date,
+                  event: gameState.gameInfo.event,
+                  opening: gameState.gameInfo.opening,
+                  eco: gameState.gameInfo.eco
+                }}
+              />
             )}
 
             {/* Move List */}
@@ -415,6 +316,37 @@ export default function Home() {
             )}
           </div>
         </div>
+
+        {/* Performance Visualization Section */}
+        {gameAnalysis && gameState && (
+          <div className="mt-8 space-y-8">
+            {/* Evaluation Chart */}
+            <EvaluationChart
+              evaluations={gameAnalysis.evaluationHistory}
+              currentMoveIndex={currentMoveIndex}
+              criticalMoments={gameAnalysis.criticalMoments}
+              onMoveClick={goToMove}
+            />
+
+            {/* Player Stats Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <PlayerStats
+                playerName={gameState.gameInfo.white}
+                playerRating={gameState.gameInfo.whiteRating}
+                statistics={gameAnalysis.whiteStats}
+                color="white"
+                isWinner={gameState.gameInfo.result === '1-0'}
+              />
+              <PlayerStats
+                playerName={gameState.gameInfo.black}
+                playerRating={gameState.gameInfo.blackRating}
+                statistics={gameAnalysis.blackStats}
+                color="black"
+                isWinner={gameState.gameInfo.result === '0-1'}
+              />
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

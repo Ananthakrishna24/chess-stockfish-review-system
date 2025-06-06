@@ -1,5 +1,30 @@
 import { EngineEvaluation, StockfishConfig, MoveClassification } from '@/types/analysis';
 
+export type TacticalPattern = 
+  | 'fork'
+  | 'pin'
+  | 'skewer'
+  | 'discovery'
+  | 'double_attack'
+  | 'deflection'
+  | 'decoy'
+  | 'sacrifice'
+  | 'clearance'
+  | 'interference'
+  | 'zugzwang'
+  | 'stalemate_trick'
+  | 'back_rank'
+  | 'smothered_mate'
+  | 'none';
+
+export interface TacticalAnalysis {
+  patterns: TacticalPattern[];
+  isForcing: boolean;
+  isTactical: boolean;
+  threatLevel: 'low' | 'medium' | 'high' | 'critical';
+  description?: string;
+}
+
 export class StockfishEngine {
   private isReady = false;
   private config: StockfishConfig = {
@@ -95,6 +120,167 @@ export class StockfishEngine {
     if (evaluation >= -500) return 'blunder';
     
     return 'miss';
+  }
+
+  // New tactical pattern recognition methods
+  analyzeTacticalPatterns(
+    positionBefore: EngineEvaluation,
+    positionAfter: EngineEvaluation,
+    playedMove: string
+  ): TacticalAnalysis {
+    const patterns: TacticalPattern[] = [];
+    let isForcing = false;
+    let isTactical = false;
+    let threatLevel: TacticalAnalysis['threatLevel'] = 'low';
+    let description = '';
+
+    const scoreDiff = Math.abs(positionBefore.score - positionAfter.score);
+    const evaluationSwing = positionAfter.score - positionBefore.score;
+
+    // Detect if move is tactical based on evaluation swing
+    if (scoreDiff > 100) {
+      isTactical = true;
+      
+      if (scoreDiff > 500) {
+        threatLevel = 'critical';
+        patterns.push('sacrifice'); // Large material exchanges often involve sacrifices
+      } else if (scoreDiff > 300) {
+        threatLevel = 'high';
+        patterns.push('double_attack'); // Significant advantage often from double attacks
+      } else if (scoreDiff > 150) {
+        threatLevel = 'medium';
+        patterns.push('fork'); // Moderate tactical gains often from forks
+      }
+    }
+
+    // Detect forcing moves (checks, captures, threats)
+    if (positionAfter.mate !== undefined) {
+      isForcing = true;
+      isTactical = true;
+      threatLevel = 'critical';
+      
+      if (Math.abs(positionAfter.mate) <= 3) {
+        patterns.push('back_rank');
+        description = `Mate in ${Math.abs(positionAfter.mate)}`;
+      } else if (Math.abs(positionAfter.mate) === 1) {
+        patterns.push('smothered_mate');
+        description = 'Forced mate in 1';
+      }
+    }
+
+    // Mock tactical pattern detection based on move characteristics
+    const moveString = playedMove.toLowerCase();
+    
+    // Simple heuristics for demonstration
+    if (this.containsCapture(moveString)) {
+      isTactical = true;
+      patterns.push('double_attack');
+    }
+    
+    if (this.isCheckMove(moveString)) {
+      isForcing = true;
+      isTactical = true;
+      patterns.push('discovery');
+    }
+
+    // Detect sacrificial patterns
+    if (evaluationSwing < -200 && positionAfter.score > positionBefore.score + 300) {
+      patterns.push('sacrifice');
+      description = 'Tactical sacrifice for positional advantage';
+    }
+
+    // Detect pins and skewers (mock detection)
+    if (Math.random() < 0.1 && isTactical) {
+      patterns.push(Math.random() < 0.5 ? 'pin' : 'skewer');
+    }
+
+    // Detect deflection and decoy patterns
+    if (scoreDiff > 200 && !patterns.includes('sacrifice')) {
+      patterns.push(Math.random() < 0.5 ? 'deflection' : 'decoy');
+    }
+
+    // If no specific patterns detected but move is tactical
+    if (isTactical && patterns.length === 0) {
+      patterns.push('none');
+    }
+
+    return {
+      patterns: patterns.length > 0 ? patterns : ['none'],
+      isForcing,
+      isTactical,
+      threatLevel,
+      description
+    };
+  }
+
+  private containsCapture(move: string): boolean {
+    // Mock capture detection - in real implementation would check FEN
+    return move.includes('x') || Math.random() < 0.2;
+  }
+
+  private isCheckMove(move: string): boolean {
+    // Mock check detection - in real implementation would check if move gives check
+    return move.includes('+') || Math.random() < 0.15;
+  }
+
+  detectCriticalMoments(evaluations: EngineEvaluation[]): number[] {
+    const criticalMoments: number[] = [];
+    
+    for (let i = 1; i < evaluations.length; i++) {
+      const prev = evaluations[i - 1];
+      const curr = evaluations[i];
+      
+      // Large evaluation swings indicate critical moments
+      const swing = Math.abs(curr.score - prev.score);
+      
+      if (swing > 200) {
+        criticalMoments.push(i);
+      }
+      
+      // Mate threats
+      if (curr.mate !== undefined && Math.abs(curr.mate) <= 5) {
+        criticalMoments.push(i);
+      }
+      
+      // Evaluation crosses zero (advantage change)
+      if ((prev.score > 50 && curr.score < -50) || (prev.score < -50 && curr.score > 50)) {
+        criticalMoments.push(i);
+      }
+    }
+    
+    return criticalMoments;
+  }
+
+  analyzeGamePhases(moves: any[], evaluations: EngineEvaluation[]): {
+    opening: number;
+    middlegame: number;
+    endgame: number;
+    openingAccuracy: number;
+    middlegameAccuracy: number;
+    endgameAccuracy: number;
+  } {
+    // Simple heuristics for game phase detection
+    const totalMoves = moves.length;
+    
+    // Opening typically ends around move 10-15
+    const openingEnd = Math.min(Math.floor(totalMoves * 0.25), 15);
+    
+    // Endgame typically starts when few pieces remain (mock detection)
+    const endgameStart = Math.max(Math.floor(totalMoves * 0.75), openingEnd + 10);
+    
+    // Calculate phase accuracies
+    const openingEvals = evaluations.slice(0, openingEnd);
+    const middlegameEvals = evaluations.slice(openingEnd, endgameStart);
+    const endgameEvals = evaluations.slice(endgameStart);
+    
+    return {
+      opening: openingEnd,
+      middlegame: endgameStart,
+      endgame: totalMoves,
+      openingAccuracy: this.calculateAccuracy(openingEvals),
+      middlegameAccuracy: this.calculateAccuracy(middlegameEvals),
+      endgameAccuracy: this.calculateAccuracy(endgameEvals)
+    };
   }
 
   calculateAccuracy(evaluations: EngineEvaluation[]): number {

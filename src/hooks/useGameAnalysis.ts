@@ -97,6 +97,49 @@ export function useGameAnalysis() {
       whiteStats.accuracy = stockfish.calculateAccuracy(whiteEvaluations);
       blackStats.accuracy = stockfish.calculateAccuracy(blackEvaluations);
 
+      // Detect critical moments and analyze game phases
+      const criticalMoments = stockfish.engine?.detectCriticalMoments(evaluations) || [];
+      const phaseAnalysis = stockfish.engine?.analyzeGamePhases(moves, evaluations) || {
+        opening: Math.min(10, moves.length),
+        middlegame: Math.min(25, moves.length), 
+        endgame: moves.length,
+        openingAccuracy: whiteStats.accuracy,
+        middlegameAccuracy: whiteStats.accuracy,
+        endgameAccuracy: whiteStats.accuracy
+      };
+
+      // Calculate tactical statistics
+      whiteStats.tacticalMoves = 0;
+      whiteStats.forcingMoves = 0;
+      blackStats.tacticalMoves = 0;
+      blackStats.forcingMoves = 0;
+
+      // Analyze each move for tactical patterns
+      for (let i = 0; i < moveAnalyses.length; i++) {
+        const moveAnalysis = moveAnalyses[i];
+        const positionBefore = evaluations[i];
+        const positionAfter = evaluations[i + 1];
+        
+        if (positionBefore && positionAfter && stockfish.engine) {
+          const tacticalAnalysis = stockfish.engine.analyzeTacticalPatterns(
+            positionBefore,
+            positionAfter,
+            moveAnalysis.move
+          );
+          
+          moveAnalysis.tacticalAnalysis = tacticalAnalysis;
+          
+          const isWhiteMove = i % 2 === 0;
+          if (isWhiteMove) {
+            if (tacticalAnalysis.isTactical) whiteStats.tacticalMoves!++;
+            if (tacticalAnalysis.isForcing) whiteStats.forcingMoves!++;
+          } else {
+            if (tacticalAnalysis.isTactical) blackStats.tacticalMoves!++;
+            if (tacticalAnalysis.isForcing) blackStats.forcingMoves!++;
+          }
+        }
+      }
+
       // Create complete game analysis
       const analysis: GameAnalysis = {
         moves: moveAnalyses,
@@ -108,9 +151,21 @@ export function useGameAnalysis() {
           accuracy: Math.max(whiteStats.accuracy, blackStats.accuracy)
         },
         gamePhases: {
-          opening: Math.min(10, moves.length),
-          middlegame: Math.min(25, moves.length),
-          endgame: Math.max(25, moves.length)
+          opening: phaseAnalysis.opening,
+          middlegame: phaseAnalysis.middlegame,
+          endgame: phaseAnalysis.endgame
+        },
+        criticalMoments,
+        evaluationHistory: evaluations,
+        phaseAnalysis: {
+          openingAccuracy: phaseAnalysis.openingAccuracy,
+          middlegameAccuracy: phaseAnalysis.middlegameAccuracy,
+          endgameAccuracy: phaseAnalysis.endgameAccuracy
+        },
+        gameResult: {
+          result: chessGame.gameState.gameInfo.result as any || '*',
+          termination: chessGame.gameState.gameInfo.termination || 'Unknown',
+          winningAdvantage: Math.max(...evaluations.map(e => Math.abs(e.score)))
         }
       };
 

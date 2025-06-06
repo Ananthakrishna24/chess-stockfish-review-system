@@ -8,6 +8,31 @@ export type MoveClassification =
   | 'blunder'
   | 'miss';
 
+export type TacticalPattern = 
+  | 'fork'
+  | 'pin'
+  | 'skewer'
+  | 'discovery'
+  | 'double_attack'
+  | 'deflection'
+  | 'decoy'
+  | 'sacrifice'
+  | 'clearance'
+  | 'interference'
+  | 'zugzwang'
+  | 'stalemate_trick'
+  | 'back_rank'
+  | 'smothered_mate'
+  | 'none';
+
+export interface TacticalAnalysis {
+  patterns: TacticalPattern[];
+  isForcing: boolean;
+  isTactical: boolean;
+  threatLevel: 'low' | 'medium' | 'high' | 'critical';
+  description?: string;
+}
+
 export interface EngineEvaluation {
   score: number; // Centipawns from white's perspective
   depth: number;
@@ -23,6 +48,7 @@ export interface MoveAnalysis {
   san: string;
   evaluation: EngineEvaluation;
   classification: MoveClassification;
+  tacticalAnalysis?: TacticalAnalysis;
   alternativeMoves?: {
     move: string;
     evaluation: EngineEvaluation;
@@ -40,6 +66,10 @@ export interface PlayerStatistics {
   mistake: number;
   blunder: number;
   miss: number;
+  // Tactical statistics
+  tacticalMoves?: number;
+  forcingMoves?: number;
+  criticalMoments?: number;
 }
 
 export interface GameAnalysis {
@@ -64,20 +94,33 @@ export interface GameAnalysis {
     middlegame: number; // Move number where middlegame ends
     endgame: number; // Move number where endgame starts
   };
+  // Enhanced analysis data for Phase 4
+  criticalMoments: number[];
+  evaluationHistory: EngineEvaluation[];
+  phaseAnalysis: {
+    openingAccuracy: number;
+    middlegameAccuracy: number;
+    endgameAccuracy: number;
+  };
+  gameResult?: {
+    result: '1-0' | '0-1' | '1/2-1/2' | '*';
+    termination: string;
+    winningAdvantage?: number; // Max advantage achieved
+  };
+}
+
+export interface StockfishConfig {
+  depth: number;
+  time: number; // Time limit in milliseconds
+  threads: number;
+  hash: number; // Hash table size in MB
 }
 
 export interface AnalysisProgress {
   currentMove: number;
   totalMoves: number;
-  isAnalyzing: boolean;
-  progress: number; // 0-100
-}
-
-export interface StockfishConfig {
-  depth: number;
-  time: number;
-  threads: number;
-  hash: number;
+  progress: number; // Percentage (0-100)
+  estimatedTimeRemaining?: number; // Seconds
 }
 
 export interface CriticalPosition {
