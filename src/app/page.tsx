@@ -139,7 +139,7 @@ const AnalysisPanel = ({
   };
 
   return (
-    <div className="w-[400px] h-[750px] bg-card flex flex-col border border-border rounded-lg">
+    <div className="w-[400px] h-[878px] bg-card flex flex-col border border-border rounded-lg">
       <div className="h-14 flex items-center justify-between px-3 border-b border-border">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold text-lg">Game Review</h2>
@@ -400,59 +400,64 @@ export default function Home() {
 
   const mainContent = gameState ? (
     <div className="flex-1 flex justify-center items-center overflow-hidden min-h-screen">
-      {/* Chess Board Section with Evaluation Bar */}
-      <div className="flex items-center gap-6">
-        {/* Evaluation Bar */}
-        {gameAnalysis && (
-          <EvaluationBar 
-            evaluation={getCurrentEvaluation()}
-            className="h-[700px]" // Match board height
-          />
-        )}
-        
-        {/* Board and Player Info */}
-        <div className="flex flex-col">
-          <PlayerInfoBar
-            playerName={gameState.gameInfo.white || 'Player 1'}
-            playerRating={gameState.gameInfo.whiteRating}
-            className="mb-4 w-[700px]"
-          />
-          <div className="w-[700px] h-[700px]">
-            <ChessBoard
-              position={currentPosition}
-              orientation="white"
+      {/* Main Game Layout */}
+      <div className="flex items-start gap-8">
+        {/* Left Side: Evaluation Bar + Board Section */}
+        <div className="flex items-center gap-6">
+          {/* Evaluation Bar - aligned with board only */}
+          {gameAnalysis && (
+            <EvaluationBar 
+              evaluation={getCurrentEvaluation()}
+              className="h-[750px]" // Match board height only
+            />
+          )}
+          
+          {/* Board Section with Player Info */}
+          <div className="flex flex-col">
+            <PlayerInfoBar
+              playerName={gameState.gameInfo.white || 'Player 1'}
+              playerRating={gameState.gameInfo.whiteRating}
+              className="mb-6 w-[750px]"
+            />
+            <div className="w-[750px] h-[750px]">
+              <ChessBoard
+                position={currentPosition}
+                orientation="white"
+              />
+            </div>
+            <PlayerInfoBar
+              playerName={gameState.gameInfo.black || 'Player 2'}
+              playerRating={gameState.gameInfo.blackRating}
+              className="mt-6 w-[750px]"
             />
           </div>
-          <PlayerInfoBar
-            playerName={gameState.gameInfo.black || 'Player 2'}
-            playerRating={gameState.gameInfo.blackRating}
-            className="mt-4 w-[700px]"
-          />
         </div>
+        
+        {/* Game Review Panel - aligned with entire board section height */}
+        {gameAnalysis && (
+          <div className="self-start">
+            <AnalysisPanel 
+              gameAnalysis={gameAnalysis}
+              gameState={gameState}
+              goToMove={goToMove}
+              goToStart={goToStart}
+              currentMoveIndex={currentMoveIndex}
+              isAnalyzingGame={isAnalyzingGame}
+              analysisProgress={analysisProgress}
+              stopAnalysis={stopAnalysis}
+              analyzeCompleteGame={analyzeCompleteGame}
+              goToEnd={goToEnd}
+              goForward={goForward}
+              goBackward={goBackward}
+              canGoBackward={currentMoveIndex > -1}
+              canGoForward={currentMoveIndex < gameState.moves.length - 1}
+              isAtStart={currentMoveIndex === -1}
+              isAtEnd={currentMoveIndex === gameState.moves.length - 1}
+              totalMoves={gameState.moves.length}
+            />
+          </div>
+        )}
       </div>
-      
-      {/* Game Review Panel - positioned next to board with matching height */}
-      {gameAnalysis && (
-        <AnalysisPanel 
-          gameAnalysis={gameAnalysis}
-          gameState={gameState}
-          goToMove={goToMove}
-          goToStart={goToStart}
-          currentMoveIndex={currentMoveIndex}
-          isAnalyzingGame={isAnalyzingGame}
-          analysisProgress={analysisProgress}
-          stopAnalysis={stopAnalysis}
-          analyzeCompleteGame={analyzeCompleteGame}
-          goToEnd={goToEnd}
-          goForward={goForward}
-          goBackward={goBackward}
-          canGoBackward={currentMoveIndex > -1}
-          canGoForward={currentMoveIndex < gameState.moves.length - 1}
-          isAtStart={currentMoveIndex === -1}
-          isAtEnd={currentMoveIndex === gameState.moves.length - 1}
-          totalMoves={gameState.moves.length}
-        />
-      )}
     </div>
   ) : (
     <div className="flex-1 flex items-center justify-center p-8">
