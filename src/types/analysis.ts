@@ -2,6 +2,7 @@ export type MoveClassification =
   | 'brilliant'
   | 'great'
   | 'best'
+  | 'excellent'
   | 'good'
   | 'inaccuracy'
   | 'mistake'
@@ -61,11 +62,24 @@ export interface PlayerStatistics {
   brilliant: number;
   great: number;
   best: number;
+  excellent: number;
   good: number;
   inaccuracy: number;
   mistake: number;
   blunder: number;
   miss: number;
+  // For UI compatibility
+  moveCounts: {
+    brilliant: number;
+    great: number;
+    best: number;
+    excellent: number;
+    good: number;
+    inaccuracy: number;
+    mistake: number;
+    blunder: number;
+    miss: number;
+  };
   // Tactical statistics
   tacticalMoves?: number;
   forcingMoves?: number;

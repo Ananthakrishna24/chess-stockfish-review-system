@@ -109,11 +109,17 @@ export function useGameAnalysis() {
         
         if (positionBefore && positionAfter) {
           const bestMove = positionBefore.bestMove;
+          const isWhiteMove = i % 2 === 0;
+          const playerRating = isWhiteMove 
+            ? (chessGame.gameState.gameInfo.whiteRating || 1500)
+            : (chessGame.gameState.gameInfo.blackRating || 1500);
+          
           const classification = stockfish.classifyMove(
             positionBefore,
             positionAfter,
             move.from + move.to,
-            bestMove
+            bestMove,
+            playerRating
           );
 
           const moveAnalysis: MoveAnalysis = {
@@ -231,15 +237,28 @@ export function useGameAnalysis() {
       brilliant: 0,
       great: 0,
       best: 0,
+      excellent: 0,
       good: 0,
       inaccuracy: 0,
       mistake: 0,
       blunder: 0,
-      miss: 0
+      miss: 0,
+      moveCounts: {
+        brilliant: 0,
+        great: 0,
+        best: 0,
+        excellent: 0,
+        good: 0,
+        inaccuracy: 0,
+        mistake: 0,
+        blunder: 0,
+        miss: 0,
+      }
     };
 
     playerMoves.forEach(move => {
       stats[move.classification]++;
+      stats.moveCounts[move.classification]++;
     });
 
     return stats;

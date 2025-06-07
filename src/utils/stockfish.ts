@@ -101,30 +101,110 @@ export class StockfishEngine {
     positionBefore: EngineEvaluation,
     positionAfter: EngineEvaluation,
     playedMove: string,
-    bestMove: string
+    bestMove: string,
+    playerRating: number = 1500
   ): MoveClassification {
-    const scoreDiff = Math.abs(positionBefore.score - positionAfter.score);
-    const isPlayerTurn = positionBefore.score > 0; // Assuming white to move
-    
-    // Adjust score based on whose turn it is
-    const adjustedScoreBefore = isPlayerTurn ? positionBefore.score : -positionBefore.score;
-    const adjustedScoreAfter = isPlayerTurn ? -positionAfter.score : positionAfter.score;
-    const evaluation = adjustedScoreAfter - adjustedScoreBefore;
+    // Implement Chess.com's Expected Points Model
+    const expectedPointsBefore = this.calculateExpectedPoints(positionBefore.score, playerRating);
+    const expectedPointsAfter = this.calculateExpectedPoints(-positionAfter.score, playerRating); // Flip for opponent
+    const expectedPointsChange = expectedPointsAfter - expectedPointsBefore;
 
-    // Check if played move is the best move
-    if (playedMove === bestMove) {
-      if (evaluation > 200) return 'brilliant';
-      if (evaluation > 100) return 'great';
-      return 'best';
+    // Get best move evaluation for comparison
+    const bestMoveExpectedPoints = this.calculateExpectedPoints(positionBefore.score, playerRating);
+    const missedOpportunity = bestMoveExpectedPoints - expectedPointsAfter;
+
+    // Check for brilliant moves (good sacrifices with advantage)
+    if (this.isBrilliantMove(positionBefore, positionAfter, playedMove, bestMove, playerRating)) {
+      return 'brilliant';
     }
 
-    // Classify based on evaluation loss
-    if (evaluation >= -50) return 'good';
-    if (evaluation >= -100) return 'inaccuracy';
-    if (evaluation >= -250) return 'mistake';
-    if (evaluation >= -500) return 'blunder';
+    // Check for great moves (turning losing to equal, or finding only good move)
+    if (this.isGreatMove(positionBefore, positionAfter, expectedPointsChange)) {
+      return 'great';
+    }
+
+    // Check for missed opportunities
+    if (missedOpportunity > 0.15) {
+      return 'miss';
+    }
+
+    // Classify based on expected points change thresholds
+    if (expectedPointsChange >= -0.02) {
+      return playedMove === bestMove ? 'best' : 'excellent';
+    } else if (expectedPointsChange >= -0.05) {
+      return 'good';
+    } else if (expectedPointsChange >= -0.10) {
+      return 'inaccuracy';
+    } else if (expectedPointsChange >= -0.20) {
+      return 'mistake';
+    } else {
+      return 'blunder';
+    }
+  }
+
+  private calculateExpectedPoints(evaluation: number, playerRating: number): number {
+    // Convert centipawn evaluation to expected points using sigmoid function
+    // Adjusted for player rating - higher rated players need smaller advantages
+    const ratingFactor = Math.max(0.5, Math.min(2.0, 1500 / playerRating));
+    const adjustedEval = evaluation * ratingFactor;
     
-    return 'miss';
+    // Handle mate scores
+    if (Math.abs(evaluation) > 9000) {
+      return evaluation > 0 ? 1.0 : 0.0;
+    }
+    
+    // Sigmoid function: 1 / (1 + 10^(-eval/400))
+    return 1 / (1 + Math.pow(10, -adjustedEval / 400));
+  }
+
+  private isBrilliantMove(
+    before: EngineEvaluation,
+    after: EngineEvaluation,
+    playedMove: string,
+    bestMove: string,
+    playerRating: number
+  ): boolean {
+    // Brilliant criteria from chess.com:
+    // 1. Move involves a good piece sacrifice
+    // 2. Best or nearly best move
+    // 3. Not in a bad position after the move
+    // 4. Not already in a completely winning position
+
+    const beforeEval = before.score;
+    const afterEval = -after.score; // Flip for current player
+    const evaluation = afterEval - beforeEval;
+
+    // Check if it's a sacrifice (material loss for positional gain)
+    const isSacrifice = evaluation < -100 && afterEval > beforeEval + 200;
+    
+    // Check if move is best or nearly best
+    const isBestMove = playedMove === bestMove || Math.abs(evaluation) < 50;
+    
+    // Check position quality constraints
+    const notBadAfter = afterEval > -200;
+    const notAlreadyWinning = beforeEval < 500;
+    
+    // Be more generous with brilliant classification for lower-rated players
+    const ratingBonus = playerRating < 1200 ? 100 : playerRating < 1600 ? 50 : 0;
+    
+    return isSacrifice && isBestMove && notBadAfter && notAlreadyWinning && 
+           (evaluation + ratingBonus > 100);
+  }
+
+  private isGreatMove(
+    before: EngineEvaluation,
+    after: EngineEvaluation,
+    expectedPointsChange: number
+  ): boolean {
+    const beforeEval = before.score;
+    const afterEval = -after.score;
+    
+    // Great move: turns losing position to equal, or finds only good move
+    const turnsLosingToEqual = beforeEval < -200 && afterEval > -50;
+    const significantImprovement = expectedPointsChange > 0.15;
+    const onlyGoodMove = expectedPointsChange > -0.01 && Math.abs(beforeEval) > 300;
+    
+    return turnsLosingToEqual || significantImprovement || onlyGoodMove;
   }
 
   // New tactical pattern recognition methods

@@ -1,12 +1,15 @@
 'use client';
 
-import React from 'react';
-import { Chess } from 'chess.js';
+import React, { useEffect, useRef } from 'react';
 import { BoardOrientation } from '@/types/chess';
-import { parseSquareColor } from '@/utils/chess';
-import ChessSquare from './ChessSquare';
-import ChessPiece from './ChessPiece';
 import { cn } from '@/lib/utils';
+
+// Import ChessBoard.js
+declare global {
+  interface Window {
+    Chessboard: any;
+  }
+}
 
 interface ChessBoardProps {
   position: string; // FEN string
@@ -23,71 +26,87 @@ export default function ChessBoard({
   onSquareClick,
   className = ''
 }: ChessBoardProps) {
-  const chess = new Chess(position);
-  const board = chess.board();
-  
-  const files = orientation === 'white' ? ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] : ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'];
-  const ranks = orientation === 'white' ? ['8', '7', '6', '5', '4', '3', '2', '1'] : ['1', '2', '3', '4', '5', '6', '7', '8'];
+  const boardRef = useRef<HTMLDivElement>(null);
+  const chessboardRef = useRef<any>(null);
 
-  const handleSquareClick = (square: string) => {
-    onSquareClick?.(square);
-  };
+  useEffect(() => {
+    // Dynamically load ChessBoard.js
+    const loadChessBoard = async () => {
+      // Load CSS
+      if (!document.getElementById('chessboard-css')) {
+        const css = document.createElement('link');
+        css.id = 'chessboard-css';
+        css.rel = 'stylesheet';
+        css.href = 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css';
+        document.head.appendChild(css);
+      }
+
+      // Load jQuery if not already loaded
+      if (!window.jQuery) {
+        const jquery = document.createElement('script');
+        jquery.src = 'https://code.jquery.com/jquery-3.5.1.min.js';
+        document.head.appendChild(jquery);
+        await new Promise(resolve => jquery.onload = resolve);
+      }
+
+      // Load ChessBoard.js if not already loaded
+      if (!window.Chessboard) {
+        const chessboard = document.createElement('script');
+        chessboard.src = 'https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js';
+        document.head.appendChild(chessboard);
+        await new Promise(resolve => chessboard.onload = resolve);
+      }
+
+      // Initialize the board
+      if (boardRef.current && window.Chessboard && !chessboardRef.current) {
+        chessboardRef.current = window.Chessboard(boardRef.current, {
+          position: position,
+          orientation: orientation,
+          showNotation: true,
+          pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+          sparePieces: false,
+          draggable: false,
+          dropOffBoard: 'snapback',
+          moveSpeed: 'fast',
+          snapbackSpeed: 500,
+          snapSpeed: 100,
+          onSquareClick: onSquareClick
+        });
+      }
+    };
+
+    loadChessBoard();
+
+    return () => {
+      // Cleanup when component unmounts
+      if (chessboardRef.current && chessboardRef.current.destroy) {
+        chessboardRef.current.destroy();
+        chessboardRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update position when it changes
+  useEffect(() => {
+    if (chessboardRef.current && chessboardRef.current.position) {
+      // Use position() method to update the board position immediately
+      chessboardRef.current.position(position, false); // false = no animation
+    }
+  }, [position]);
+
+  // Update orientation when it changes
+  useEffect(() => {
+    if (chessboardRef.current && chessboardRef.current.orientation) {
+      chessboardRef.current.orientation(orientation);
+    }
+  }, [orientation]);
 
   return (
-    <div className={cn("aspect-square w-full", className)}>
-      <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
-        {ranks.map((rank, rankIndex) =>
-          files.map((file, fileIndex) => {
-            const square = file + rank;
-            const squareColor = parseSquareColor(square);
-            const piece = board[rankIndex]?.[fileIndex];
-
-            // Determine if the coordinate should be shown
-            const showRank = fileIndex === 0;
-            const showFile = rankIndex === 7;
-
-            return (
-              <ChessSquare
-                key={square}
-                square={square}
-                color={squareColor}
-                isHighlighted={highlightedSquares.includes(square)}
-                onClick={() => handleSquareClick(square)}
-                className="relative"
-              >
-                {/* Add rank and file coordinates inside the squares */}
-                {showRank && (
-                  <span
-                    className={cn(
-                      "absolute top-0 left-1 text-xs font-bold pointer-events-none",
-                      squareColor === 'light' ? 'text-board-dark' : 'text-board-light'
-                    )}
-                  >
-                    {rank}
-                  </span>
-                )}
-                {showFile && (
-                  <span
-                    className={cn(
-                      "absolute bottom-0 right-1 text-xs font-bold pointer-events-none",
-                       squareColor === 'light' ? 'text-board-dark' : 'text-board-light'
-                    )}
-                  >
-                    {file}
-                  </span>
-                )}
-                
-                {piece && (
-                  <ChessPiece
-                    type={piece.type}
-                    color={piece.color}
-                  />
-                )}
-              </ChessSquare>
-            );
-          })
-        )}
-      </div>
+    <div className={cn("aspect-square", className)}>
+      <div 
+        ref={boardRef}
+        style={{ width: '100%', height: '100%' }}
+      />
     </div>
   );
 } 
