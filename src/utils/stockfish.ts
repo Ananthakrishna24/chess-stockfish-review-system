@@ -176,7 +176,7 @@ export class StockfishEngine {
 
     // Check if it's a sacrifice (material loss for positional gain)
     const isSacrifice = evaluation < -100 && afterEval > beforeEval + 200;
-    
+
     // Check if move is best or nearly best
     const isBestMove = playedMove === bestMove || Math.abs(evaluation) < 50;
     

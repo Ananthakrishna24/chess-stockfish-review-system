@@ -220,6 +220,7 @@ const AnalysisPanel = ({
           currentMoveIndex={currentMoveIndex}
           criticalMoments={gameAnalysis.criticalMoments}
           onMoveClick={goToMove}
+          moveClassifications={gameAnalysis.moves.map(move => move.classification)}
         />
         {renderPlayerStats({ name: gameState.gameInfo.white, rating: gameState.gameInfo.whiteRating }, gameAnalysis.whiteStats)}
         {renderPlayerStats({ name: gameState.gameInfo.black, rating: gameState.gameInfo.blackRating }, gameAnalysis.blackStats)}

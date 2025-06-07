@@ -106,7 +106,7 @@ export default function ChessBoard({
       <div 
         ref={boardRef}
         style={{ width: '100%', height: '100%' }}
-      />
+                  />
     </div>
   );
 } 
