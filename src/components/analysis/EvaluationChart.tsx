@@ -128,12 +128,14 @@ export function EvaluationChart({
             <path
               d={whiteAreaPath}
               fill="white"
+              fillOpacity="0.3"
             />
 
             {/* Black area fill (below evaluation line) */}
             <path
               d={blackAreaPath}
-              fill="black"
+              fill="#374151"
+              fillOpacity="0.3"
             />
 
             {/* Smooth evaluation line */}
