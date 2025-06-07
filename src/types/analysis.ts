@@ -4,6 +4,7 @@ export type MoveClassification =
   | 'best'
   | 'excellent'
   | 'good'
+  | 'book'
   | 'inaccuracy'
   | 'mistake'
   | 'blunder'
@@ -64,6 +65,7 @@ export interface PlayerStatistics {
   best: number;
   excellent: number;
   good: number;
+  book: number;
   inaccuracy: number;
   mistake: number;
   blunder: number;
@@ -75,6 +77,7 @@ export interface PlayerStatistics {
     best: number;
     excellent: number;
     good: number;
+    book: number;
     inaccuracy: number;
     mistake: number;
     blunder: number;

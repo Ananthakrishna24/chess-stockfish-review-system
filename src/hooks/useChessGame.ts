@@ -82,34 +82,8 @@ export function useChessGame() {
     return gameState.moves.slice(0, currentMoveIndex + 1);
   }, [gameState, currentMoveIndex]);
 
-  // Keyboard navigation
-  useEffect(() => {
-    const handleKeyPress = (event: KeyboardEvent) => {
-      if (!gameState) return;
-      
-      switch (event.key) {
-        case 'ArrowLeft':
-          event.preventDefault();
-          goBackward();
-          break;
-        case 'ArrowRight':
-          event.preventDefault();
-          goForward();
-          break;
-        case 'Home':
-          event.preventDefault();
-          goToStart();
-          break;
-        case 'End':
-          event.preventDefault();
-          goToEnd();
-          break;
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyPress);
-    return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [gameState, goBackward, goForward, goToStart, goToEnd]);
+  // Note: Keyboard navigation is now handled in the main component 
+  // to support review mode conditions
 
   const resetGame = useCallback(() => {
     setGameState(null);

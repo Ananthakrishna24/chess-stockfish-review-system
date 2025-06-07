@@ -39,11 +39,11 @@ export function PlayerStats({
   };
 
   const totalMoves = statistics.brilliant + statistics.great + statistics.best + 
-                    statistics.good + statistics.inaccuracy + statistics.mistake + 
+                    statistics.excellent + statistics.good + (statistics.book || 0) + statistics.inaccuracy + statistics.mistake + 
                     statistics.blunder + statistics.miss;
 
   const positiveMovesPercentage = totalMoves > 0 
-    ? ((statistics.brilliant + statistics.great + statistics.best + statistics.good) / totalMoves * 100)
+    ? ((statistics.brilliant + statistics.great + statistics.best + statistics.excellent + statistics.good + (statistics.book || 0)) / totalMoves * 100)
     : 0;
 
   return (
@@ -88,7 +88,9 @@ export function PlayerStats({
               { type: 'brilliant', count: statistics.brilliant, color: 'bg-cyan-500', label: 'Brilliant' },
               { type: 'great', count: statistics.great, color: 'bg-blue-500', label: 'Great' },
               { type: 'best', count: statistics.best, color: 'bg-green-500', label: 'Best' },
-              { type: 'good', count: statistics.good, color: 'bg-green-400', label: 'Good' },
+              { type: 'excellent', count: statistics.excellent, color: 'bg-green-400', label: 'Excellent' },
+              { type: 'good', count: statistics.good, color: 'bg-green-300', label: 'Good' },
+              { type: 'book', count: statistics.book || 0, color: 'bg-purple-500', label: 'Book' },
               { type: 'inaccuracy', count: statistics.inaccuracy, color: 'bg-yellow-500', label: 'Inaccuracy' },
               { type: 'mistake', count: statistics.mistake, color: 'bg-orange-500', label: 'Mistake' },
               { type: 'blunder', count: statistics.blunder, color: 'bg-red-500', label: 'Blunder' },

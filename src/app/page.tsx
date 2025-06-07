@@ -98,6 +98,108 @@ const AnalysisPanel = ({
     return <MoveClassificationIcon classification={classification} size="sm" />;
   };
 
+  const renderPlayerReviewStats = () => {
+    if (!gameAnalysis || !gameState) return null;
+
+    const whitePlayer = { name: gameState.gameInfo.white, rating: gameState.gameInfo.whiteRating };
+    const blackPlayer = { name: gameState.gameInfo.black, rating: gameState.gameInfo.blackRating };
+    const whiteStats = gameAnalysis.whiteStats;
+    const blackStats = gameAnalysis.blackStats;
+
+    if (!whiteStats?.moveCounts || !blackStats?.moveCounts) {
+      return (
+        <div className="bg-card border border-border rounded-lg p-4">
+          <div className="flex justify-between items-center mb-4">
+            <div className="text-center flex-1">
+              <div className="font-semibold text-lg">{whitePlayer.name}</div>
+              {whitePlayer.rating && <div className="text-sm text-muted-foreground">({whitePlayer.rating})</div>}
+              <div className="text-2xl font-bold mt-1">...%</div>
+            </div>
+            <div className="text-center flex-1">
+              <div className="font-semibold text-lg">{blackPlayer.name}</div>
+              {blackPlayer.rating && <div className="text-sm text-muted-foreground">({blackPlayer.rating})</div>}
+              <div className="text-2xl font-bold mt-1">...%</div>
+            </div>
+          </div>
+          <div className="text-center text-sm text-muted-foreground">Analyzing...</div>
+        </div>
+      );
+    }
+
+    const moveCategories = [
+      { key: 'brilliant', label: 'Brilliant', color: 'text-cyan-400' },
+      { key: 'great', label: 'Great', color: 'text-blue-400' },
+      { key: 'best', label: 'Best', color: 'text-green-400' },
+      { key: 'excellent', label: 'Excellent', color: 'text-green-300' },
+      { key: 'good', label: 'Good', color: 'text-lime-400' },
+      { key: 'book', label: 'Book', color: 'text-purple-400' },
+      { key: 'inaccuracy', label: 'Inaccuracy', color: 'text-yellow-400' },
+      { key: 'mistake', label: 'Mistake', color: 'text-orange-500' },
+      { key: 'miss', label: 'Miss', color: 'text-red-400' },
+      { key: 'blunder', label: 'Blunder', color: 'text-red-500' }
+    ];
+
+    return (
+      <div className="bg-card border border-border rounded-lg p-4">
+        {/* Players Section */}
+        <div className="flex justify-between items-center mb-6">
+          <div className="text-center flex-1">
+            <div className="font-semibold text-lg">{whitePlayer.name}</div>
+            {whitePlayer.rating && <div className="text-sm text-muted-foreground">({whitePlayer.rating})</div>}
+            <div className="text-2xl font-bold mt-1">{whiteStats.accuracy.toFixed(1)}</div>
+          </div>
+          <div className="text-center flex-1">
+            <div className="font-semibold text-lg">{blackPlayer.name}</div>
+            {blackPlayer.rating && <div className="text-sm text-muted-foreground">({blackPlayer.rating})</div>}
+            <div className="text-2xl font-bold mt-1">{blackStats.accuracy.toFixed(1)}</div>
+          </div>
+        </div>
+
+        {/* Move Categories Grid */}
+        <div className="space-y-3">
+          {moveCategories.map(({ key, label, color }) => {
+            const whiteCount = whiteStats.moveCounts[key] || 0;
+            const blackCount = blackStats.moveCounts[key] || 0;
+            
+            return (
+              <div key={key} className="flex items-center justify-between py-1">
+                <div className="flex items-center gap-2 min-w-0 flex-1 justify-end pr-4">
+                  <span className="text-sm font-medium">{whiteCount}</span>
+                </div>
+                
+                <div className="flex items-center gap-2 min-w-[80px] justify-center">
+                  <div className="w-5 h-5 rounded-full flex items-center justify-center">
+                    {getMoveIcon(key)}
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-2 min-w-0 flex-1 justify-start pl-4">
+                  <span className="text-sm font-medium">{blackCount}</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Move Quality Reference */}
+        <div className="border-t pt-4 mt-4">
+          <div className="flex justify-center">
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-xs">
+              {moveCategories.map(({ key, label, color }) => (
+                <div key={`legend-${key}`} className="flex items-center gap-3">
+                  <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
+                    {getMoveIcon(key)}
+                  </div>
+                  <span className={`${color} font-medium`}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderPlayerStats = (player, stats) => {
     if (!stats || !stats.moveCounts) {
       return (
@@ -222,8 +324,7 @@ const AnalysisPanel = ({
           onMoveClick={goToMove}
           moveClassifications={gameAnalysis.moves.map(move => move.classification)}
         />
-        {renderPlayerStats({ name: gameState.gameInfo.white, rating: gameState.gameInfo.whiteRating }, gameAnalysis.whiteStats)}
-        {renderPlayerStats({ name: gameState.gameInfo.black, rating: gameState.gameInfo.blackRating }, gameAnalysis.blackStats)}
+        {renderPlayerReviewStats()}
 
         {/* Move List */}
         <Card>
@@ -337,7 +438,7 @@ export default function Home() {
 
   // Keyboard event handling for review mode
   React.useEffect(() => {
-    if (!isReviewMode) return;
+    if (!isReviewMode || !gameState) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       switch (event.key) {
@@ -366,7 +467,7 @@ export default function Home() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isReviewMode, currentMoveIndex, gameState?.moves.length, goBackward, goForward, goToStart, goToEnd, dispatch]);
+  }, [isReviewMode, gameState, currentMoveIndex, goBackward, goForward, goToStart, goToEnd, dispatch]);
 
   const handleLoadPGN = async (pgn: string) => {
     if (!pgn.trim()) return;

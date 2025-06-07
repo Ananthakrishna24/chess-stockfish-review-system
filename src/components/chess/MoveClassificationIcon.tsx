@@ -36,6 +36,8 @@ export function MoveClassificationIcon({
         return <CheckCircle className={cn(iconSize, 'text-green-300')} />;
       case 'good':
         return <ThumbsUp className={cn(iconSize, 'text-lime-400')} />;
+      case 'book':
+        return <span className={cn('text-purple-400 font-bold', size === 'sm' ? 'text-xs' : size === 'lg' ? 'text-lg' : 'text-sm')}>📖</span>;
       case 'inaccuracy':
         return <span className={cn('text-yellow-400 font-bold', size === 'sm' ? 'text-xs' : size === 'lg' ? 'text-lg' : 'text-sm')}>?</span>;
       case 'mistake':
@@ -56,6 +58,7 @@ export function MoveClassificationIcon({
       case 'best': return 'Best';
       case 'excellent': return 'Excellent';
       case 'good': return 'Good';
+      case 'book': return 'Book';
       case 'inaccuracy': return 'Inaccuracy';
       case 'mistake': return 'Mistake';
       case 'blunder': return 'Blunder';
@@ -71,6 +74,7 @@ export function MoveClassificationIcon({
       case 'best': return 'text-green-400';
       case 'excellent': return 'text-green-300';
       case 'good': return 'text-lime-400';
+      case 'book': return 'text-purple-400';
       case 'inaccuracy': return 'text-yellow-400';
       case 'mistake': return 'text-orange-500';
       case 'blunder': return 'text-red-500';
