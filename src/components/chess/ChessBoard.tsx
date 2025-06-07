@@ -2,10 +2,11 @@
 
 import React from 'react';
 import { Chess } from 'chess.js';
-import { BoardOrientation, ChessPiece as ChessPieceType } from '@/types/chess';
-import { parseSquareColor, getPieceUnicode } from '@/utils/chess';
+import { BoardOrientation } from '@/types/chess';
+import { parseSquareColor } from '@/utils/chess';
 import ChessSquare from './ChessSquare';
 import ChessPiece from './ChessPiece';
+import { cn } from '@/lib/utils';
 
 interface ChessBoardProps {
   position: string; // FEN string
@@ -25,7 +26,6 @@ export default function ChessBoard({
   const chess = new Chess(position);
   const board = chess.board();
   
-  // Generate files and ranks based on orientation
   const files = orientation === 'white' ? ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] : ['h', 'g', 'f', 'e', 'd', 'c', 'b', 'a'];
   const ranks = orientation === 'white' ? ['8', '7', '6', '5', '4', '3', '2', '1'] : ['1', '2', '3', '4', '5', '6', '7', '8'];
 
@@ -34,90 +34,59 @@ export default function ChessBoard({
   };
 
   return (
-    <div className={`select-none ${className}`}>
-      {/* Board container with coordinates */}
-      <div className="relative inline-block">
-        {/* Top coordinates */}
-        <div className="flex mb-1">
-          <div className="w-6 h-6"></div> {/* Corner space */}
-          {files.map((file) => (
-            <div
-              key={file}
-              className="w-12 h-6 flex items-center justify-center text-sm font-medium text-gray-600"
-            >
-              {file}
-            </div>
-          ))}
-        </div>
+    <div className={cn("aspect-square w-full", className)}>
+      <div className="grid grid-cols-8 grid-rows-8 w-full h-full">
+        {ranks.map((rank, rankIndex) =>
+          files.map((file, fileIndex) => {
+            const square = file + rank;
+            const squareColor = parseSquareColor(square);
+            const piece = board[rankIndex]?.[fileIndex];
 
-        {/* Board with side coordinates */}
-        <div className="flex">
-          {/* Left coordinates */}
-          <div className="flex flex-col">
-            {ranks.map((rank) => (
-              <div
-                key={rank}
-                className="w-6 h-12 flex items-center justify-center text-sm font-medium text-gray-600"
+            // Determine if the coordinate should be shown
+            const showRank = fileIndex === 0;
+            const showFile = rankIndex === 7;
+
+            return (
+              <ChessSquare
+                key={square}
+                square={square}
+                color={squareColor}
+                isHighlighted={highlightedSquares.includes(square)}
+                onClick={() => handleSquareClick(square)}
+                className="relative"
               >
-                {rank}
-              </div>
-            ))}
-          </div>
-
-          {/* The actual chess board */}
-          <div className="grid grid-cols-8 border-2 border-gray-800 rounded-lg overflow-hidden">
-            {ranks.map((rank, rankIndex) =>
-              files.map((file, fileIndex) => {
-                const square = file + rank;
-                const squareColor = parseSquareColor(square);
-                const piece = board[7 - parseInt(rank) + 1]?.[file.charCodeAt(0) - 97];
-                const isHighlighted = highlightedSquares.includes(square);
-
-                return (
-                  <ChessSquare
-                    key={square}
-                    square={square}
-                    color={squareColor}
-                    isHighlighted={isHighlighted}
-                    onClick={() => handleSquareClick(square)}
-                  >
-                    {piece && (
-                      <ChessPiece
-                        type={piece.type}
-                        color={piece.color}
-                      />
+                {/* Add rank and file coordinates inside the squares */}
+                {showRank && (
+                  <span
+                    className={cn(
+                      "absolute top-0 left-1 text-xs font-bold pointer-events-none",
+                      squareColor === 'light' ? 'text-board-dark' : 'text-board-light'
                     )}
-                  </ChessSquare>
-                );
-              })
-            )}
-          </div>
-
-          {/* Right coordinates */}
-          <div className="flex flex-col">
-            {ranks.map((rank) => (
-              <div
-                key={`r-${rank}`}
-                className="w-6 h-12 flex items-center justify-center text-sm font-medium text-gray-600"
-              >
-                {rank}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom coordinates */}
-        <div className="flex mt-1">
-          <div className="w-6 h-6"></div> {/* Corner space */}
-          {files.map((file) => (
-            <div
-              key={`b-${file}`}
-              className="w-12 h-6 flex items-center justify-center text-sm font-medium text-gray-600"
-            >
-              {file}
-            </div>
-          ))}
-        </div>
+                  >
+                    {rank}
+                  </span>
+                )}
+                {showFile && (
+                  <span
+                    className={cn(
+                      "absolute bottom-0 right-1 text-xs font-bold pointer-events-none",
+                       squareColor === 'light' ? 'text-board-dark' : 'text-board-light'
+                    )}
+                  >
+                    {file}
+                  </span>
+                )}
+                
+                {piece && (
+                  <ChessPiece
+                    type={piece.type}
+                    color={piece.color}
+                  />
+                )}
+              </ChessSquare>
+            );
+          })
+        )}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 interface ChessSquareProps {
   square: string;
@@ -6,6 +7,7 @@ interface ChessSquareProps {
   isHighlighted?: boolean;
   onClick?: () => void;
   children?: React.ReactNode;
+  className?: string;
 }
 
 export default function ChessSquare({
@@ -13,22 +15,17 @@ export default function ChessSquare({
   color,
   isHighlighted = false,
   onClick,
-  children
+  children,
+  className
 }: ChessSquareProps) {
-  const baseClasses = 'w-12 h-12 flex items-center justify-center relative cursor-pointer transition-colors';
-  
-  const colorClasses = {
-    light: 'bg-amber-50 hover:bg-amber-100',
-    dark: 'bg-green-600 hover:bg-green-700'
-  };
-
-  const highlightClasses = isHighlighted 
-    ? 'ring-2 ring-yellow-400 ring-inset' 
-    : '';
-
   return (
     <div
-      className={`${baseClasses} ${colorClasses[color]} ${highlightClasses}`}
+      className={cn(
+        'w-full h-full flex items-center justify-center relative cursor-pointer',
+        color === 'light' ? 'chess-square-light' : 'chess-square-dark',
+        isHighlighted && 'chess-square-highlighted',
+        className
+      )}
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -36,7 +33,7 @@ export default function ChessSquare({
     >
       {children}
       {isHighlighted && (
-        <div className="absolute inset-0 bg-yellow-400 bg-opacity-30 pointer-events-none" />
+        <div className="absolute inset-0 bg-blue-400/20 pointer-events-none rounded-sm" />
       )}
     </div>
   );

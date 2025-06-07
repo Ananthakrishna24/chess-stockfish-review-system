@@ -4,7 +4,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { EngineEvaluation, AnalysisProgress, StockfishConfig } from '@/types/analysis';
 import { StockfishEngine } from '@/utils/stockfish';
 
-export function useStockfish(config?: Partial<StockfishConfig>) {
+export function useStockfish(initialConfig?: Partial<StockfishConfig>) {
   const [engine, setEngine] = useState<StockfishEngine | null>(null);
   const [isReady, setIsReady] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
@@ -19,16 +19,24 @@ export function useStockfish(config?: Partial<StockfishConfig>) {
   });
 
   const engineRef = useRef<StockfishEngine | null>(null);
+  const configRef = useRef(initialConfig);
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  const updateConfig = useCallback((newConfig: Partial<StockfishConfig>) => {
+    configRef.current = { ...configRef.current, ...newConfig };
+    if (engineRef.current) {
+      engineRef.current.setConfig(newConfig);
+    }
+  }, []);
+
   const initializeEngine = useCallback(async () => {
-    if (isInitializing || isReady) return;
+    if (engineRef.current || isInitializing) return;
     
     setIsInitializing(true);
     setError(null);
     
     try {
-      const newEngine = new StockfishEngine(config);
+      const newEngine = new StockfishEngine(configRef.current);
       await newEngine.initialize();
       
       engineRef.current = newEngine;
@@ -41,7 +49,7 @@ export function useStockfish(config?: Partial<StockfishConfig>) {
     } finally {
       setIsInitializing(false);
     }
-  }, [config, isInitializing, isReady]);
+  }, [isInitializing]);
 
   const analyzePosition = useCallback(async (
     fen: string, 
@@ -213,6 +221,7 @@ export function useStockfish(config?: Partial<StockfishConfig>) {
     getBestMove,
     classifyMove,
     calculateAccuracy,
+    updateConfig,
     
     // Engine reference (for advanced usage)
     engine: engineRef.current

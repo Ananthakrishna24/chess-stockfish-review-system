@@ -13,10 +13,9 @@ export default function ChessPiece({ type, color, className = '' }: ChessPiecePr
   
   return (
     <div
-      className={`text-3xl leading-none select-none pointer-events-none ${className}`}
+      className={`text-[8vmin] leading-none select-none pointer-events-none ${className}`}
       style={{
-        textShadow: '1px 1px 2px rgba(0, 0, 0, 0.3)',
-        filter: 'drop-shadow(0 1px 1px rgba(0, 0, 0, 0.2))'
+        textShadow: '1px 1px 3px rgba(0,0,0,0.5)'
       }}
     >
       {pieceSymbol}

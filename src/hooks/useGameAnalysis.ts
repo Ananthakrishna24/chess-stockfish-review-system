@@ -6,13 +6,54 @@ import { useStockfish } from './useStockfish';
 import { GameAnalysis, MoveAnalysis, PlayerStatistics, EngineEvaluation } from '@/types/analysis';
 import { ChessGameManager } from '@/utils/chess';
 
+interface AnalysisOptions {
+  depth?: number;
+}
+
 export function useGameAnalysis() {
   const chessGame = useChessGame();
-  const stockfish = useStockfish({ depth: 15, time: 1000 });
+  const stockfish = useStockfish();
   
   const [gameAnalysis, setGameAnalysis] = useState<GameAnalysis | null>(null);
   const [isAnalyzingGame, setIsAnalyzingGame] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+
+  // Load analysis from localStorage on mount
+  useEffect(() => {
+    const savedAnalysis = localStorage.getItem('chess-analysis');
+    const savedGameState = localStorage.getItem('chess-game-state');
+    
+    if (savedAnalysis && savedGameState) {
+      try {
+        const analysis = JSON.parse(savedAnalysis);
+        const gameState = JSON.parse(savedGameState);
+        
+        // Verify the saved analysis matches current game
+        if (gameState.pgn && chessGame.gameState?.pgn === gameState.pgn) {
+          setGameAnalysis(analysis);
+        }
+      } catch (error) {
+        console.error('Failed to load saved analysis:', error);
+        localStorage.removeItem('chess-analysis');
+        localStorage.removeItem('chess-game-state');
+      }
+    }
+  }, [chessGame.gameState?.pgn]);
+
+  // Save analysis to localStorage when it changes
+  useEffect(() => {
+    if (gameAnalysis && chessGame.gameState) {
+      try {
+        localStorage.setItem('chess-analysis', JSON.stringify(gameAnalysis));
+        localStorage.setItem('chess-game-state', JSON.stringify({
+          pgn: chessGame.gameState.pgn,
+          timestamp: Date.now()
+        }));
+      } catch (error) {
+        console.error('Failed to save analysis:', error);
+      }
+    }
+  }, [gameAnalysis, chessGame.gameState]);
 
   const analyzeCurrentPosition = useCallback(async () => {
     if (!chessGame.currentPosition || !stockfish.isReady) return null;
@@ -20,7 +61,11 @@ export function useGameAnalysis() {
     return await stockfish.analyzePosition(chessGame.currentPosition);
   }, [chessGame.currentPosition, stockfish]);
 
-  const analyzeCompleteGame = useCallback(async () => {
+  const analyzeCompleteGame = useCallback(async (options?: AnalysisOptions) => {
+    if (options?.depth) {
+      stockfish.updateConfig({ depth: options.depth });
+    }
+
     if (!chessGame.gameState || !stockfish.isReady) {
       setAnalysisError('Game or engine not ready');
       return;
@@ -221,13 +266,35 @@ export function useGameAnalysis() {
     setIsAnalyzingGame(false);
   }, [stockfish]);
 
+  const resetGame = useCallback(() => {
+    setGameAnalysis(null);
+    setAnalysisError(null);
+    setIsAnalyzingGame(false);
+    localStorage.removeItem('chess-analysis');
+    localStorage.removeItem('chess-game-state');
+    chessGame.resetGame();
+  }, [chessGame]);
+
+  const loadGameAndAnalyze = useCallback(async (pgn: string, options?: AnalysisOptions) => {
+    // Clear existing analysis when loading new game
+    setGameAnalysis(null);
+    localStorage.removeItem('chess-analysis');
+    localStorage.removeItem('chess-game-state');
+    
+    chessGame.loadGame(pgn);
+    // The useEffect will trigger analysis, but we need to set config first
+    if (options?.depth) {
+      stockfish.updateConfig({ depth: options.depth });
+    }
+  }, [chessGame, stockfish]);
+
   // Auto-analyze when game is loaded and engine is ready
   useEffect(() => {
     if (chessGame.gameState && stockfish.isReady && !gameAnalysis && !isAnalyzingGame) {
-      // Small delay to ensure UI is ready
+      console.log('Starting automatic game analysis...');
       setTimeout(() => {
         analyzeCompleteGame();
-      }, 500);
+      }, 500); // Increased delay to ensure engine is fully ready
     }
   }, [chessGame.gameState, stockfish.isReady, gameAnalysis, isAnalyzingGame, analyzeCompleteGame]);
 
@@ -254,6 +321,7 @@ export function useGameAnalysis() {
     analyzeCompleteGame,
     analyzeCurrentPosition,
     stopAnalysis,
+    resetGame,
     
     // Analysis data getters
     getMoveAnalysis,
@@ -264,5 +332,8 @@ export function useGameAnalysis() {
     whiteAccuracy: gameAnalysis?.whiteStats.accuracy || 0,
     blackAccuracy: gameAnalysis?.blackStats.accuracy || 0,
     currentMoveAnalysis: getCurrentMoveAnalysis(),
+    
+    // New function
+    loadGame: loadGameAndAnalyze,
   };
 } 

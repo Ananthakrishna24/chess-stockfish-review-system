@@ -33,8 +33,8 @@ export function EvaluationChart({
   }
 
   // Calculate chart dimensions and scaling
-  const chartWidth = 600;
-  const chartHeight = 200;
+  const chartWidth = 300; // Fit within reduced sidebar
+  const chartHeight = 140;
   const margin = { top: 20, right: 40, bottom: 40, left: 40 };
   const innerWidth = chartWidth - margin.left - margin.right;
   const innerHeight = chartHeight - margin.top - margin.bottom;
@@ -93,7 +93,8 @@ export function EvaluationChart({
           <svg 
             width={chartWidth} 
             height={chartHeight}
-            className="border rounded overflow-hidden bg-gray-50"
+            className="border rounded overflow-hidden bg-gray-50 w-full"
+            viewBox={`0 0 ${chartWidth} ${chartHeight}`}
           >
             {/* Grid lines */}
             <defs>
@@ -115,9 +116,9 @@ export function EvaluationChart({
             />
 
             {/* Critical moments indicators */}
-            {criticalMoments.map((moveIndex) => (
+            {criticalMoments.map((moveIndex, index) => (
               <line
-                key={moveIndex}
+                key={`critical-${moveIndex}-${index}`}
                 x1={margin.left + xScale(moveIndex)}
                 y1={margin.top}
                 x2={margin.left + xScale(moveIndex)}

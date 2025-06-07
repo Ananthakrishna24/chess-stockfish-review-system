@@ -1,26 +1,103 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Chess.com Dark Theme Inspired */
+  --color-background: oklch(0.15 0.01 260); /* #262421 */
+  --color-foreground: oklch(0.95 0.005 260); /* #f2f1f0 */
+  --color-card: oklch(0.18 0.01 260); /* #2f2d2a */
+  --color-card-foreground: oklch(0.95 0.005 260);
+  --color-popover: oklch(0.15 0.01 260);
+  --color-popover-foreground: oklch(0.95 0.005 260);
+  --color-primary: oklch(0.65 0.15 120); /* #85b64d - chess.com green */
+  --color-primary-foreground: oklch(0.15 0.01 260);
+  --color-secondary: oklch(0.25 0.01 260);
+  --color-secondary-foreground: oklch(0.95 0.005 260);
+  --color-muted: oklch(0.25 0.01 260);
+  --color-muted-foreground: oklch(0.7 0.01 260); /* #b5b3b0 */
+  --color-accent: oklch(0.3 0.015 260);
+  --color-accent-foreground: oklch(0.95 0.005 260);
+  --color-destructive: oklch(0.6 0.2 25);
+  --color-destructive-foreground: oklch(0.95 0.005 260);
+  --color-border: oklch(0.22 0.01 260);
+  --color-input: oklch(0.25 0.01 260);
+  --color-ring: oklch(0.65 0.15 120);
+
+  --board-dark: oklch(0.58 0.08 110); /* #8c9c74 */
+  --board-light: oklch(0.93 0.02 90); /* #ececd2 */
+  
+  --radius: 0.5rem;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--color-border);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+html, body, #__next {
+  height: 100%;
+  overflow: hidden;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: oklch(0.4 0.01 260);
+  border-radius: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.5 0.01 260);
+}
+
+.chess-square-light {
+  background-color: var(--board-light);
+}
+.chess-square-dark {
+  background-color: var(--board-dark);
+}
+.chess-square-highlighted {
+  box-shadow: inset 0 0 0 3px oklch(0.7 0.18 50);
+}
+
+/* Move classification colors for dark theme */
+.move-brilliant {
+  color: #17c2d2;
+  background: #17c2d220;
+}
+.move-great {
+  color: #5794de;
+  background: #5794de20;
+}
+.move-best {
+  color: #92bb43;
+  background: #92bb4320;
+}
+.move-inaccuracy {
+  color: #f7b045;
+  background: #f7b04520;
+}
+.move-mistake {
+  color: #e6803e;
+  background: #e6803e20;
+}
+.move-blunder {
+  color: #d14d4d;
+  background: #d14d4d20;
+}
+.move-miss {
+  color: #c95ec4;
+  background: #c95ec420;
+}
+.move-good {
+    color: #a8b056;
+    background: #a8b05620;
 }

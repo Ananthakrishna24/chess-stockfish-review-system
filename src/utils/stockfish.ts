@@ -40,6 +40,11 @@ export class StockfishEngine {
     }
   }
 
+  setConfig(newConfig: Partial<StockfishConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+    console.log('Stockfish engine config updated:', this.config);
+  }
+
   async initialize(): Promise<void> {
     // Only initialize on client side
     if (typeof window === 'undefined') {
