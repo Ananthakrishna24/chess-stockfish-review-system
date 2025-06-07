@@ -79,6 +79,12 @@ type MoveAnalysis struct {
 	AlternativeMoves  []AlternativeMove    `json:"alternativeMoves,omitempty"`
 	TacticalAnalysis  *TacticalAnalysis    `json:"tacticalAnalysis,omitempty"`
 	Comment           string               `json:"comment,omitempty"`
+	// Enhanced EP-based analysis fields
+	BeforeEvaluation  *EngineEvaluation    `json:"beforeEvaluation,omitempty"`
+	ExpectedPoints    ExpectedPointsData   `json:"expectedPoints"`
+	MoveAccuracy      float64              `json:"moveAccuracy"`
+	MaterialBalance   MaterialBalanceData  `json:"materialBalance,omitempty"`
+	IsBookMove        bool                 `json:"isBookMove,omitempty"`
 }
 
 // EngineEvaluation - Stockfish evaluation of a position
@@ -235,4 +241,37 @@ type UpdateEngineConfigRequest struct {
 	Hash             *int    `json:"hash,omitempty"`
 	Contempt         *int    `json:"contempt,omitempty"`
 	AnalysisContempt *string `json:"analysisContempt,omitempty"`
+}
+
+// ExpectedPointsData - Expected Points calculation data for a move
+type ExpectedPointsData struct {
+	Before   float64 `json:"before"`   // EP before the move
+	After    float64 `json:"after"`    // EP after the move
+	Loss     float64 `json:"loss"`     // EP loss (before - after)
+	Accuracy float64 `json:"accuracy"` // Move accuracy percentage
+}
+
+// MaterialBalanceData - Material balance information for sacrifice detection
+type MaterialBalanceData struct {
+	Before MaterialValue `json:"before"` // Material before the move
+	After  MaterialValue `json:"after"`  // Material after the move
+	Change MaterialValue `json:"change"` // Change in material (for sacrifices)
+}
+
+// MaterialValue - Detailed material count
+type MaterialValue struct {
+	Pawns   int `json:"pawns"`
+	Knights int `json:"knights"`
+	Bishops int `json:"bishops"`
+	Rooks   int `json:"rooks"`
+	Queens  int `json:"queens"`
+	Total   int `json:"total"` // Total centipawn value
+}
+
+// BookMoveInfo - Information about opening book moves
+type BookMoveInfo struct {
+	IsBookMove  bool   `json:"isBookMove"`
+	OpeningName string `json:"openingName,omitempty"`
+	ECO         string `json:"eco,omitempty"`
+	Depth       int    `json:"depth"` // How deep in the opening
 } 

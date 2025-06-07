@@ -13,22 +13,29 @@ import (
 
 // AnalysisService orchestrates game and position analysis
 type AnalysisService struct {
-	stockfishService *StockfishService
-	chessService     *ChessService
-	cacheService     *CacheService
-	playerService    *PlayerService
-	activeJobs       map[string]*models.AnalysisJob
-	jobsMutex        sync.RWMutex
+	stockfishService      *StockfishService
+	chessService          *ChessService
+	cacheService          *CacheService
+	playerService         *PlayerService
+	openingService        *OpeningService
+	enhancedAnalysisService *EnhancedAnalysisService
+	activeJobs            map[string]*models.AnalysisJob
+	jobsMutex             sync.RWMutex
 }
 
 // NewAnalysisService creates a new analysis service
-func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService, player *PlayerService) *AnalysisService {
+func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService, player *PlayerService, opening *OpeningService) *AnalysisService {
+	// Initialize enhanced analysis service
+	enhancedService := NewEnhancedAnalysisService(stockfish, chess, cache, player, opening)
+	
 	return &AnalysisService{
-		stockfishService: stockfish,
-		chessService:     chess,
-		cacheService:     cache,
-		playerService:    player,
-		activeJobs:       make(map[string]*models.AnalysisJob),
+		stockfishService:        stockfish,
+		chessService:            chess,
+		cacheService:            cache,
+		playerService:           player,
+		openingService:          opening,
+		enhancedAnalysisService: enhancedService,
+		activeJobs:              make(map[string]*models.AnalysisJob),
 	}
 }
 
@@ -84,28 +91,64 @@ func (s *AnalysisService) processGameAnalysis(job *models.AnalysisJob) {
 	
 	job.SetStatus(models.StatusAnalyzing)
 	
-	// Parse PGN
-	parsedGame, err := s.chessService.ParsePGN(job.PGN)
-	if err != nil {
-		logrus.Errorf("Failed to parse PGN for game %s: %v", job.ID, err)
-		job.SetError(fmt.Sprintf("Failed to parse PGN: %v", err))
-		return
+	// Choose analysis method based on options
+	var response *models.GameAnalysisResponse
+	var err error
+	
+	// Use Enhanced EP-based analysis if player ratings are provided or specifically requested
+	if (job.Options.PlayerRatings.White > 0 || job.Options.PlayerRatings.Black > 0) && s.enhancedAnalysisService != nil {
+		logrus.Infof("Using Enhanced EP-based analysis for game %s", job.ID)
+		response, err = s.enhancedAnalysisService.AnalyzeGameWithEP(job.PGN, job.Options, func(current, total int) {
+			job.UpdateProgress(current, total)
+		})
+	} else {
+		// Fall back to standard analysis
+		logrus.Infof("Using standard analysis for game %s", job.ID)
+		response, err = s.processStandardAnalysis(job)
 	}
 	
-	job.UpdateProgress(0, parsedGame.TotalMoves)
-	
-	// Perform analysis
-	analysis, err := s.stockfishService.AnalyzeGame(parsedGame, job.Options, func(current, total int) {
-		job.UpdateProgress(current, total)
-	})
 	if err != nil {
 		logrus.Errorf("Failed to analyze game %s: %v", job.ID, err)
 		job.SetError(fmt.Sprintf("Analysis failed: %v", err))
 		return
 	}
 	
+	// Store in cache
+	s.cacheService.StoreAnalysis(job.ID, *response)
+	
+	// Update player statistics
+	if s.playerService != nil {
+		s.playerService.RecordGameAnalysis(response)
+		logrus.Debugf("Updated player statistics for game %s", job.ID)
+	}
+	
+	// Update job with result
+	job.SetResult(response)
+	
+	logrus.Infof("Completed analysis for game %s in %.2f seconds", 
+		job.ID, response.ProcessingTime)
+}
+
+// processStandardAnalysis performs the legacy standard analysis
+func (s *AnalysisService) processStandardAnalysis(job *models.AnalysisJob) (*models.GameAnalysisResponse, error) {
+	// Parse PGN
+	parsedGame, err := s.chessService.ParsePGN(job.PGN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PGN: %v", err)
+	}
+	
+	job.UpdateProgress(0, parsedGame.TotalMoves)
+	
+	// Perform standard analysis
+	analysis, err := s.stockfishService.AnalyzeGame(parsedGame, job.Options, func(current, total int) {
+		job.UpdateProgress(current, total)
+	})
+	if err != nil {
+		return nil, fmt.Errorf("analysis failed: %v", err)
+	}
+	
 	// Create response
-	response := models.GameAnalysisResponse{
+	response := &models.GameAnalysisResponse{
 		GameID:         job.ID,
 		GameInfo:       parsedGame.GameInfo,
 		Analysis:       *analysis,
@@ -113,20 +156,7 @@ func (s *AnalysisService) processGameAnalysis(job *models.AnalysisJob) {
 		Timestamp:      time.Now(),
 	}
 	
-	// Store in cache
-	s.cacheService.StoreAnalysis(job.ID, response)
-	
-	// Update player statistics
-	if s.playerService != nil {
-		s.playerService.RecordGameAnalysis(&response)
-		logrus.Debugf("Updated player statistics for game %s", job.ID)
-	}
-	
-	// Update job with result
-	job.SetResult(&response)
-	
-	logrus.Infof("Completed analysis for game %s in %.2f seconds", 
-		job.ID, response.ProcessingTime)
+	return response, nil
 }
 
 // GetAnalysisProgress returns the progress of an analysis job
@@ -301,10 +331,103 @@ func (s *AnalysisService) GetStats() map[string]interface{} {
 	
 	cacheStats := s.cacheService.GetStats()
 	
-	return map[string]interface{}{
+	stats := map[string]interface{}{
 		"active_jobs":    activeJobCount,
 		"job_statuses":   jobStatuses,
 		"cache_stats":    cacheStats,
 		"timestamp":      time.Now(),
 	}
+	
+	// Add EP analysis availability
+	if s.enhancedAnalysisService != nil {
+		stats["enhanced_analysis_available"] = true
+	}
+	
+	return stats
+}
+
+// StartEnhancedGameAnalysis starts EP-based game analysis directly
+func (s *AnalysisService) StartEnhancedGameAnalysis(pgn string, options models.AnalysisOptions) string {
+	if s.enhancedAnalysisService == nil {
+		logrus.Warn("Enhanced analysis service not available, falling back to standard analysis")
+		return s.StartGameAnalysis(pgn, options)
+	}
+	
+	// Validate and set EP-specific options
+	s.enhancedAnalysisService.ValidateEPAnalysisOptions(&options)
+	
+	// Use standard job creation but force enhanced analysis
+	gameID := s.cacheService.GenerateGameID(pgn)
+	
+	// Check cache first
+	if _, found := s.cacheService.GetAnalysis(gameID); found {
+		logrus.Debugf("Enhanced analysis for game %s found in cache", gameID)
+		return gameID
+	}
+	
+	// Create job with enhanced flag
+	job := &models.AnalysisJob{
+		ID:        gameID,
+		PGN:       pgn,
+		Options:   options,
+		Status:    models.StatusQueued,
+		CreatedAt: time.Now(),
+	}
+	
+	// Store job
+	s.jobsMutex.Lock()
+	s.activeJobs[gameID] = job
+	s.jobsMutex.Unlock()
+	
+	// Start enhanced analysis
+	go s.processEnhancedGameAnalysis(job)
+	
+	logrus.Infof("Started enhanced EP analysis for game %s", gameID)
+	return gameID
+}
+
+// processEnhancedGameAnalysis processes EP-based analysis
+func (s *AnalysisService) processEnhancedGameAnalysis(job *models.AnalysisJob) {
+	defer func() {
+		s.jobsMutex.Lock()
+		delete(s.activeJobs, job.ID)
+		s.jobsMutex.Unlock()
+	}()
+	
+	job.SetStatus(models.StatusAnalyzing)
+	
+	// Use enhanced analysis
+	response, err := s.enhancedAnalysisService.AnalyzeGameWithEP(job.PGN, job.Options, func(current, total int) {
+		job.UpdateProgress(current, total)
+	})
+	
+	if err != nil {
+		logrus.Errorf("Enhanced analysis failed for game %s: %v", job.ID, err)
+		job.SetError(fmt.Sprintf("Enhanced analysis failed: %v", err))
+		return
+	}
+	
+	// Store results
+	s.cacheService.StoreAnalysis(job.ID, *response)
+	
+	if s.playerService != nil {
+		s.playerService.RecordGameAnalysis(response)
+	}
+	
+	job.SetResult(response)
+	logrus.Infof("Enhanced analysis completed for game %s", job.ID)
+}
+
+// GetEnhancedAnalysisService returns the enhanced analysis service for direct access
+func (s *AnalysisService) GetEnhancedAnalysisService() *EnhancedAnalysisService {
+	return s.enhancedAnalysisService
+}
+
+// AnalyzePositionWithEP analyzes a position using Expected Points
+func (s *AnalysisService) AnalyzePositionWithEP(fen string, playerRating int, isWhiteToMove bool) (float64, error) {
+	if s.enhancedAnalysisService == nil {
+		return 0, fmt.Errorf("enhanced analysis service not available")
+	}
+	
+	return s.enhancedAnalysisService.CalculatePositionEP(fen, playerRating, isWhiteToMove)
 } 

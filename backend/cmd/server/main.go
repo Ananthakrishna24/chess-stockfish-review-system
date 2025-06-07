@@ -33,7 +33,7 @@ func main() {
 	chessService := services.NewChessService()
 	playerService := services.NewPlayerService()
 	openingService := services.NewOpeningService()
-	analysisService := services.NewAnalysisService(stockfishService, chessService, cacheService, playerService)
+	analysisService := services.NewAnalysisService(stockfishService, chessService, cacheService, playerService, openingService)
 
 	// Initialize Stockfish pool
 	if err := stockfishService.Initialize(); err != nil {

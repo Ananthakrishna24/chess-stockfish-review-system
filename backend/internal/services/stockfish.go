@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -150,12 +151,17 @@ func (s *StockfishService) AnalyzePosition(fen string, depth int, timeMs int, mu
 	return evaluation, alternatives, nil
 }
 
-// AnalyzeGame analyzes a complete game
+// AnalyzeGame analyzes a complete game using the Enhanced Expected Points algorithm
 func (s *StockfishService) AnalyzeGame(game *models.ParsedGame, options models.AnalysisOptions, progressCallback func(int, int)) (*models.GameAnalysis, error) {
+	return s.AnalyzeGameEnhanced(game, options, progressCallback)
+}
+
+// AnalyzeGameEnhanced implements the full EP-based analysis algorithm
+func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options models.AnalysisOptions, progressCallback func(int, int)) (*models.GameAnalysis, error) {
 	// Set default options
 	depth := options.Depth
 	if depth == 0 {
-		depth = 15
+		depth = 18 // Higher depth for better analysis
 	}
 	
 	timePerMove := options.TimePerMove
@@ -163,77 +169,158 @@ func (s *StockfishService) AnalyzeGame(game *models.ParsedGame, options models.A
 		timePerMove = 1000
 	}
 	
+	// Initialize services for enhanced analysis
+	epsService := NewExpectedPointsService()
+	
+	// Initialize analysis structure
 	analysis := &models.GameAnalysis{
 		Moves:             make([]models.MoveAnalysis, 0, len(game.Moves)),
 		EvaluationHistory: make([]models.EngineEvaluation, 0, len(game.Moves)),
 		CriticalMoments:   make([]models.CriticalMoment, 0),
 	}
 	
-	var previousEval *models.EngineEvaluation
+	// Track accuracy scores
+	var whiteAccuracyTotal, blackAccuracyTotal float64
+	var whiteMoveCount, blackMoveCount int
 	
-	// Analyze each position
+	var currentPosition *models.ParsedMove
+	
+	logrus.Infof("Starting enhanced EP-based analysis for %d moves", len(game.Moves))
+	
+	// Implementation of the core algorithm loop
 	for i, move := range game.Moves {
 		if progressCallback != nil {
 			progressCallback(i, len(game.Moves))
 		}
 		
-		// Analyze the position after this move
-		eval, _, err := s.AnalyzePosition(move.FEN, depth, timePerMove, 1)
+		// A. Evaluate position BEFORE the move (if not first move)
+		var beforeEval *models.EngineEvaluation
+		if i > 0 && currentPosition != nil {
+			// Analyze the position before this move was made
+			eval, _, err := s.AnalyzePosition(currentPosition.FEN, depth, timePerMove, 1)
+			if err != nil {
+				logrus.Errorf("Failed to analyze position before move %d: %v", i, err)
+				continue
+			}
+			beforeEval = eval
+		}
+		
+		// B. Calculate pre-move Expected Points
+		var epBefore float64
+		if beforeEval != nil {
+			playerRating := s.getPlayerRating(options.PlayerRatings, move.IsWhite)
+			normalizedEval := epsService.NormalizeEvaluationForPlayer(beforeEval.Score, move.IsWhite)
+			epBefore = epsService.CalculateExpectedPoints(normalizedEval, playerRating)
+		}
+		
+		// C. Apply the player's actual move (position after move)
+		currentPosition = &move
+		
+		// D. Evaluate position AFTER the move
+		afterEval, alternatives, err := s.AnalyzePosition(move.FEN, depth, timePerMove, 3) // Multi-PV for alternatives
 		if err != nil {
-			logrus.Errorf("Failed to analyze position %d: %v", i, err)
+			logrus.Errorf("Failed to analyze position after move %d: %v", i, err)
 			continue
 		}
 		
-		// Classify the move
-		classification := s.classifyMove(previousEval, eval, move.IsWhite)
+		// E. Calculate post-move Expected Points
+		playerRating := s.getPlayerRating(options.PlayerRatings, move.IsWhite)
+		normalizedAfterEval := epsService.NormalizeEvaluationForPlayer(afterEval.Score, move.IsWhite)
+		epAfter := epsService.CalculateExpectedPoints(normalizedAfterEval, playerRating)
 		
+		// F. Determine Expected Points Loss and Move Accuracy
+		var epLoss float64
+		var moveAccuracy float64
+		if beforeEval != nil {
+			epLoss = epBefore - epAfter
+			moveAccuracy = epsService.CalculateMoveAccuracy(epLoss)
+		} else {
+			// First move - assume perfect accuracy
+			epLoss = 0.0
+			moveAccuracy = 100.0
+		}
+		
+		// Add to player's total accuracy
+		if move.IsWhite {
+			whiteAccuracyTotal += moveAccuracy
+			whiteMoveCount++
+		} else {
+			blackAccuracyTotal += moveAccuracy
+			blackMoveCount++
+		}
+		
+		// G. Categorize the Move
+		classification := s.classifyMoveEnhanced(beforeEval, afterEval, move, alternatives, epLoss, options)
+		
+		// Create enhanced move analysis
 		moveAnalysis := models.MoveAnalysis{
-			MoveNumber:     move.MoveNumber,
-			Move:           move.UCI,
-			SAN:            move.SAN,
-			FEN:            move.FEN,
-			Evaluation:     *eval,
-			Classification: classification.String(),
+			MoveNumber:       move.MoveNumber,
+			Move:             move.UCI,
+			SAN:              move.SAN,
+			FEN:              move.FEN,
+			Evaluation:       *afterEval,
+			BeforeEvaluation: beforeEval,
+			Classification:   classification.String(),
+			AlternativeMoves: alternatives,
+			MoveAccuracy:     moveAccuracy,
+			ExpectedPoints: models.ExpectedPointsData{
+				Before:   epBefore,
+				After:    epAfter,
+				Loss:     epLoss,
+				Accuracy: moveAccuracy,
+			},
+		}
+		
+		// Set book move flag if in opening
+		if move.MoveNumber <= 15 && classification == models.Book {
+			moveAnalysis.IsBookMove = true
 		}
 		
 		analysis.Moves = append(analysis.Moves, moveAnalysis)
-		analysis.EvaluationHistory = append(analysis.EvaluationHistory, *eval)
+		analysis.EvaluationHistory = append(analysis.EvaluationHistory, *afterEval)
 		
-		// Check for critical moments
-		if previousEval != nil {
-			if s.isCriticalMoment(previousEval, eval) {
-				critical := models.CriticalMoment{
-					MoveNumber: move.MoveNumber,
-					BeforeEval: previousEval.Score,
-					AfterEval:  eval.Score,
-				}
-				
-				if eval.Score > previousEval.Score {
-					critical.Advantage = "white"
-				} else {
-					critical.Advantage = "black"
-				}
-				
-				analysis.CriticalMoments = append(analysis.CriticalMoments, critical)
+		// Check for critical moments with enhanced detection
+		if beforeEval != nil && s.isCriticalMomentEnhanced(beforeEval, afterEval, epLoss) {
+			critical := models.CriticalMoment{
+				MoveNumber: move.MoveNumber,
+				BeforeEval: beforeEval.Score,
+				AfterEval:  afterEval.Score,
+				Description: s.describeCriticalMoment(epLoss, classification),
 			}
+			
+			if afterEval.Score > beforeEval.Score {
+				critical.Advantage = "white"
+			} else {
+				critical.Advantage = "black"
+			}
+			
+			analysis.CriticalMoments = append(analysis.CriticalMoments, critical)
 		}
 		
-		previousEval = eval
+		// Move to next iteration
 	}
 	
-	// Calculate statistics
-	analysis.WhiteStats = s.calculatePlayerStats(analysis.Moves, true)
-	analysis.BlackStats = s.calculatePlayerStats(analysis.Moves, false)
+	// 3. Finalization - Calculate final accuracies
+	finalWhiteAccuracy := 0.0
+	finalBlackAccuracy := 0.0
 	
-	// Determine game phases (simplified)
-	analysis.GamePhases = models.GamePhases{
-		Opening:    min(15, len(game.Moves)/3),
-		Middlegame: min(40, len(game.Moves)*2/3),
-		Endgame:    len(game.Moves),
+	if whiteMoveCount > 0 {
+		finalWhiteAccuracy = whiteAccuracyTotal / float64(whiteMoveCount)
+	}
+	if blackMoveCount > 0 {
+		finalBlackAccuracy = blackAccuracyTotal / float64(blackMoveCount)
 	}
 	
-	// Calculate phase accuracy
+	// Calculate enhanced statistics
+	analysis.WhiteStats = s.calculateEnhancedPlayerStats(analysis.Moves, true, finalWhiteAccuracy)
+	analysis.BlackStats = s.calculateEnhancedPlayerStats(analysis.Moves, false, finalBlackAccuracy)
+	
+	// Determine game phases with better detection
+	analysis.GamePhases = s.determineGamePhases(analysis.Moves)
 	analysis.PhaseAnalysis = s.calculatePhaseAnalysis(analysis.Moves, analysis.GamePhases)
+	
+	logrus.Infof("Enhanced analysis complete: White accuracy: %.1f%%, Black accuracy: %.1f%%", 
+		finalWhiteAccuracy, finalBlackAccuracy)
 	
 	return analysis, nil
 }
@@ -445,4 +532,164 @@ func safeDiv(numerator, denominator float64) float64 {
 		return 0
 	}
 	return numerator / denominator
+}
+
+// Enhanced analysis helper methods for EP-based algorithm
+
+// getPlayerRating gets the rating for the current player
+func (s *StockfishService) getPlayerRating(ratings models.PlayerRatings, isWhite bool) int {
+	if isWhite {
+		if ratings.White > 0 {
+			return ratings.White
+		}
+	} else {
+		if ratings.Black > 0 {
+			return ratings.Black
+		}
+	}
+	return 1500 // Default rating
+}
+
+// classifyMoveEnhanced uses the sophisticated EP-based categorization
+func (s *StockfishService) classifyMoveEnhanced(beforeEval, afterEval *models.EngineEvaluation, move models.ParsedMove, alternatives []models.AlternativeMove, epLoss float64, options models.AnalysisOptions) models.MoveClassification {
+	// Extract best move
+	bestMove := ""
+	if beforeEval != nil {
+		bestMove = beforeEval.BestMove
+	}
+	
+	// Use simple classification for now - can be enhanced with MoveCategorizer
+	return s.classifyMoveSimple(epLoss, move.MoveNumber, bestMove, move.UCI)
+}
+
+// classifyMoveSimple provides basic classification based on EP loss
+func (s *StockfishService) classifyMoveSimple(epLoss float64, moveNumber int, bestMove, playedMove string) models.MoveClassification {
+	// Book moves in opening
+	if moveNumber <= 12 && epLoss <= 0.03 {
+		return models.Book
+	}
+	
+	// Best move
+	if strings.EqualFold(bestMove, playedMove) {
+		return models.Best
+	}
+	
+	// Classification by EP loss
+	switch {
+	case epLoss <= 0.02:
+		return models.Excellent
+	case epLoss <= 0.05:
+		return models.Good
+	case epLoss <= 0.10:
+		return models.Inaccuracy
+	case epLoss <= 0.20:
+		return models.Mistake
+	default:
+		return models.Blunder
+	}
+}
+
+// isCriticalMomentEnhanced detects critical moments using EP loss
+func (s *StockfishService) isCriticalMomentEnhanced(beforeEval, afterEval *models.EngineEvaluation, epLoss float64) bool {
+	// Significant EP loss indicates a critical moment
+	if epLoss > 0.15 {
+		return true
+	}
+	
+	// Large evaluation swings
+	evalDiff := abs(afterEval.Score - beforeEval.Score)
+	return evalDiff > 150 // 150 centipawn swing
+}
+
+// describeCriticalMoment provides description for critical moments
+func (s *StockfishService) describeCriticalMoment(epLoss float64, classification models.MoveClassification) string {
+	switch classification {
+	case models.Blunder:
+		return "Major blunder changes game outcome"
+	case models.Mistake:
+		return "Significant mistake in crucial position"
+	case models.Brilliant:
+		return "Brilliant move in critical position"
+	default:
+		if epLoss > 0.2 {
+			return "Game-changing moment"
+		}
+		return "Critical decision point"
+	}
+}
+
+// calculateEnhancedPlayerStats calculates player statistics with accuracy
+func (s *StockfishService) calculateEnhancedPlayerStats(moves []models.MoveAnalysis, isWhite bool, accuracy float64) models.PlayerStatistics {
+	stats := models.PlayerStatistics{
+		Accuracy:   accuracy,
+		MoveCounts: models.MoveCounts{},
+	}
+	
+	for _, move := range moves {
+		// Check if this move belongs to the player
+		isMoveForPlayer := (move.MoveNumber%2 == 1) == isWhite
+		if !isMoveForPlayer {
+			continue
+		}
+		
+		// Count move types
+		switch move.Classification {
+		case "brilliant":
+			stats.MoveCounts.Brilliant++
+		case "great":
+			stats.MoveCounts.Great++
+		case "best":
+			stats.MoveCounts.Best++
+		case "excellent":
+			stats.MoveCounts.Excellent++
+		case "good":
+			stats.MoveCounts.Good++
+		case "book":
+			stats.MoveCounts.Book++
+		case "inaccuracy":
+			stats.MoveCounts.Inaccuracy++
+		case "mistake":
+			stats.MoveCounts.Mistake++
+		case "blunder":
+			stats.MoveCounts.Blunder++
+		}
+	}
+	
+	return stats
+}
+
+// determineGamePhases determines game phases based on move analysis
+func (s *StockfishService) determineGamePhases(moves []models.MoveAnalysis) models.GamePhases {
+	totalMoves := len(moves)
+	
+	// Default phase boundaries
+	opening := min(15, totalMoves/4)
+	middlegame := min(35, totalMoves*3/4)
+	
+	// Could be enhanced with piece count analysis, etc.
+	return models.GamePhases{
+		Opening:    opening,
+		Middlegame: middlegame,
+		Endgame:    totalMoves,
+	}
+}
+
+// isPositionWinning determines if a position is overwhelmingly winning
+func (s *StockfishService) isPositionWinning(eval *models.EngineEvaluation, isWhiteToMove bool) bool {
+	if eval.Mate != nil {
+		mate := *eval.Mate
+		if isWhiteToMove {
+			return mate > 0
+		} else {
+			return mate < 0
+		}
+	}
+	
+	// Consider winning if advantage > 300 centipawns
+	threshold := 300
+	if isWhiteToMove {
+		return eval.Score > threshold
+	} else {
+		return eval.Score < -threshold
+	}
 } 

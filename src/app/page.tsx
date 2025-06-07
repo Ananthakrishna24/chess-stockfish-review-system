@@ -509,12 +509,33 @@ export default function Home() {
       return 0; // Starting position should always be 0.0 (equal)
     }
     
-    // For moves, use the evaluation after the move
-    // evalHistory[0] = starting position eval (should be ~0)
-    // evalHistory[1] = after first move eval
-    // evalHistory[2] = after second move eval, etc.
-    const evalIndex = Math.min(chessGame.currentMoveIndex + 1, evalHistory.length - 1);
-    return evalHistory[evalIndex]?.score || 0;
+    // DEBUG: Log the structure to understand the issue
+    if (chessGame.currentMoveIndex === 0) {
+      console.log('=== EVALUATION DEBUG ===');
+      console.log('Total moves:', chessGame.gameState?.moves.length);
+      console.log('Evaluation history length:', evalHistory.length);
+      console.log('First 5 evaluations:', evalHistory.slice(0, 5).map(e => e.score));
+      console.log('Moves data:', gameAnalysis.moves?.slice(0, 3).map(m => ({
+        san: m.san,
+        evaluation: m.evaluation.score
+      })));
+    }
+    
+    // The issue might be in indexing - let's try different approaches:
+    
+    // APPROACH 1: Use move analysis evaluations (more accurate)
+    if (gameAnalysis.moves && gameAnalysis.moves[chessGame.currentMoveIndex]) {
+      const moveEval = gameAnalysis.moves[chessGame.currentMoveIndex].evaluation.score;
+      console.log(`Move ${chessGame.currentMoveIndex + 1} (${gameAnalysis.moves[chessGame.currentMoveIndex].san}): ${moveEval} centipawns`);
+      return moveEval;
+    }
+    
+    // APPROACH 2: Fallback to evaluation history
+    const evalIndex = Math.min(chessGame.currentMoveIndex, evalHistory.length - 1);
+    const rawScore = evalHistory[evalIndex]?.score || 0;
+    console.log(`Move ${chessGame.currentMoveIndex + 1} (fallback): ${rawScore} centipawns`);
+    
+    return rawScore;
   };
 
   const mainContent = chessGame.gameState ? (
@@ -527,6 +548,7 @@ export default function Home() {
           {gameAnalysis && (
             <EvaluationBar 
               evaluation={getCurrentEvaluation()}
+              orientation={boardOrientation}
               className="h-[750px]" // Match board height only
             />
           )}

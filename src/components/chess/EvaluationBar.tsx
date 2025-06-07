@@ -3,10 +3,11 @@ import { cn } from '@/lib/utils';
 
 interface EvaluationBarProps {
   evaluation: number; // Centipawns from white's perspective
+  orientation?: 'white' | 'black'; // Board orientation
   className?: string;
 }
 
-export function EvaluationBar({ evaluation, className }: EvaluationBarProps) {
+export function EvaluationBar({ evaluation, orientation = 'white', className }: EvaluationBarProps) {
   // Convert centipawn evaluation to percentage for visual display
   // Sigmoid function: 1 / (1 + 10^(-evaluation/400))
   const getEvaluationPercentage = (evaluation: number): number => {
@@ -41,30 +42,49 @@ export function EvaluationBar({ evaluation, className }: EvaluationBarProps) {
     return (evalValue / 100).toFixed(1);
   };
 
+  // Determine layout based on orientation
+  const isFlipped = orientation === 'black';
+  
+  // When flipped, swap the visual layout to match board orientation
+  const topPlayer = isFlipped ? 'white' : 'black';
+  const bottomPlayer = isFlipped ? 'black' : 'white';
+  
+  const topEvaluation = isFlipped ? evaluation : -evaluation;
+  const topPercentage = isFlipped ? displayWhite : displayBlack;
+  const topBgColor = isFlipped ? 'bg-gray-100' : 'bg-gray-800';
+  const topTextColor = isFlipped ? 'text-black' : 'text-white';
+  const topBarColor = isFlipped ? 'bg-gray-100' : 'bg-gray-800';
+  
+  const bottomEvaluation = isFlipped ? -evaluation : evaluation;
+  const bottomPercentage = isFlipped ? displayBlack : displayWhite;
+  const bottomBgColor = isFlipped ? 'bg-gray-800' : 'bg-gray-100';
+  const bottomTextColor = isFlipped ? 'text-white' : 'text-black';
+  const bottomBarColor = isFlipped ? 'bg-gray-800' : 'bg-gray-100';
+
   return (
     <div className={cn("flex flex-col items-center", className)}>
-      {/* Black evaluation number (top) - from black's perspective */}
-      <div className="text-xs font-bold text-white bg-gray-800 px-1 py-0.5 rounded-t mb-1 min-w-[32px] text-center">
-        {formatEvaluation(-evaluation)}
+      {/* Top player evaluation number */}
+      <div className={cn("text-xs font-bold px-1 py-0.5 rounded-t mb-1 min-w-[32px] text-center", topBgColor, topTextColor)}>
+        {formatEvaluation(topEvaluation)}
       </div>
       
       {/* Evaluation bar */}
       <div className={cn("w-8 flex-1 bg-background border border-border rounded-sm overflow-hidden relative")}>
-        {/* Black evaluation (top) */}
+        {/* Top section */}
         <div 
-          className="bg-gray-800 transition-all duration-300 ease-in-out"
-          style={{ height: `${displayBlack}%` }}
+          className={cn("transition-all duration-300 ease-in-out", topBarColor)}
+          style={{ height: `${topPercentage}%` }}
         />
-        {/* White evaluation (bottom) */}
+        {/* Bottom section */}
         <div 
-          className="bg-gray-100 transition-all duration-300 ease-in-out"
-          style={{ height: `${displayWhite}%` }}
+          className={cn("transition-all duration-300 ease-in-out", bottomBarColor)}
+          style={{ height: `${bottomPercentage}%` }}
         />
       </div>
       
-      {/* White evaluation number (bottom) - from white's perspective */}
-      <div className="text-xs font-bold text-black bg-gray-100 px-1 py-0.5 rounded-b mt-1 min-w-[32px] text-center">
-        {formatEvaluation(evaluation)}
+      {/* Bottom player evaluation number */}
+      <div className={cn("text-xs font-bold px-1 py-0.5 rounded-b mt-1 min-w-[32px] text-center", bottomBgColor, bottomTextColor)}>
+        {formatEvaluation(bottomEvaluation)}
       </div>
     </div>
   );
