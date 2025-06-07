@@ -548,7 +548,6 @@ export default function Home() {
           {gameAnalysis && (
             <EvaluationBar 
               evaluation={getCurrentEvaluation()}
-              orientation={boardOrientation}
               className="h-[750px]" // Match board height only
             />
           )}

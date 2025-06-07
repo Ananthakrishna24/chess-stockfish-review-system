@@ -52,13 +52,13 @@ func Load() *Config {
 	viper.SetDefault("SERVER_SHUTDOWN_TIMEOUT", "30s")
 
 	viper.SetDefault("ENGINE_BINARY_PATH", "stockfish")
-	viper.SetDefault("ENGINE_MAX_WORKERS", 4)
+	viper.SetDefault("ENGINE_MAX_WORKERS", 6)
 	viper.SetDefault("ENGINE_DEFAULT_DEPTH", 15)
 	viper.SetDefault("ENGINE_DEFAULT_TIME_MS", 1000)
 	viper.SetDefault("ENGINE_MAX_DEPTH", 24)
 	viper.SetDefault("ENGINE_MAX_TIME_MS", 30000)
-	viper.SetDefault("ENGINE_THREADS", 1)
-	viper.SetDefault("ENGINE_HASH_SIZE_MB", 128)
+	viper.SetDefault("ENGINE_THREADS", 18)
+	viper.SetDefault("ENGINE_HASH_SIZE_MB", 2048)
 	viper.SetDefault("ENGINE_CONTEMPT", 0)
 	viper.SetDefault("ENGINE_ANALYSIS_CONTEMPT", "off")
 

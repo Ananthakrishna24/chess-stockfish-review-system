@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Engine represents a UCI chess engine
@@ -374,4 +375,144 @@ func isUCIKeyword(s string) bool {
 		}
 	}
 	return false
+}
+
+// Close properly closes the engine
+func (e *Engine) Close() error {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	
+	// Send quit command if engine is still running
+	if e.cmd.Process != nil {
+		_ = e.sendCommand("quit")
+		
+		// Give the engine a moment to shut down gracefully
+		time.Sleep(100 * time.Millisecond)
+		
+		// Force kill if still running
+		if e.cmd.ProcessState == nil || !e.cmd.ProcessState.Exited() {
+			_ = e.cmd.Process.Kill()
+		}
+	}
+	
+	// Close pipes
+	if e.stdin != nil {
+		_ = e.stdin.Close()
+	}
+	if e.stdout != nil {
+		_ = e.stdout.Close()
+	}
+	
+	return nil
+}
+
+// GetEngineInfo retrieves engine identification information
+func (e *Engine) GetEngineInfo() (*EngineInfo, error) {
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+	
+	// Send UCI command to get engine info
+	if err := e.sendCommand("uci"); err != nil {
+		return nil, fmt.Errorf("failed to send uci command: %v", err)
+	}
+	
+	info := &EngineInfo{
+		Options: make(map[string]Option),
+	}
+	
+	// Read response until uciok
+	for e.scanner.Scan() {
+		line := strings.TrimSpace(e.scanner.Text())
+		
+		if line == "uciok" {
+			break
+		}
+		
+		if strings.HasPrefix(line, "id name ") {
+			info.Name = strings.TrimPrefix(line, "id name ")
+		} else if strings.HasPrefix(line, "id author ") {
+			info.Author = strings.TrimPrefix(line, "id author ")
+		} else if strings.HasPrefix(line, "option name ") {
+			option := parseOptionLine(line)
+			if option.Name != "" {
+				info.Options[option.Name] = option
+			}
+		}
+	}
+	
+	// Extract version from name if possible
+	if info.Name != "" {
+		parts := strings.Fields(info.Name)
+		for i, part := range parts {
+			if (strings.Contains(strings.ToLower(part), "stockfish") || 
+				strings.Contains(strings.ToLower(part), "sf")) && i+1 < len(parts) {
+				info.Version = parts[i+1]
+				break
+			}
+		}
+	}
+	
+	return info, nil
+}
+
+// parseOptionLine parses a UCI option line
+func parseOptionLine(line string) Option {
+	// Example: "option name Hash type spin default 16 min 1 max 33554432"
+	parts := strings.Fields(line)
+	if len(parts) < 4 || parts[0] != "option" || parts[1] != "name" {
+		return Option{}
+	}
+	
+	option := Option{}
+	
+	// Find the name (everything between "name" and "type")
+	typeIndex := -1
+	for i := 2; i < len(parts); i++ {
+		if parts[i] == "type" {
+			typeIndex = i
+			break
+		}
+	}
+	
+	if typeIndex == -1 {
+		return Option{}
+	}
+	
+	// Extract name
+	nameParts := parts[2:typeIndex]
+	option.Name = strings.Join(nameParts, " ")
+	
+	// Parse the rest of the option
+	for i := typeIndex + 1; i < len(parts); i++ {
+		switch parts[i] {
+		case "spin", "string", "check", "combo", "button":
+			option.Type = parts[i]
+		case "default":
+			if i+1 < len(parts) {
+				option.Default = parts[i+1]
+				i++
+			}
+		case "min":
+			if i+1 < len(parts) {
+				if val, err := strconv.Atoi(parts[i+1]); err == nil {
+					option.Min = val
+				}
+				i++
+			}
+		case "max":
+			if i+1 < len(parts) {
+				if val, err := strconv.Atoi(parts[i+1]); err == nil {
+					option.Max = val
+				}
+				i++
+			}
+		case "var":
+			if i+1 < len(parts) {
+				option.Var = append(option.Var, parts[i+1])
+				i++
+			}
+		}
+	}
+	
+	return option
 } 

@@ -272,10 +272,14 @@ func (eas *EnhancedAnalysisService) CalculatePositionEP(fen string, playerRating
 
 // ValidateEPAnalysisOptions validates and sets defaults for EP analysis options
 func (eas *EnhancedAnalysisService) ValidateEPAnalysisOptions(options *models.AnalysisOptions) {
-	// Set minimum depth for EP calculations
-	if options.Depth < 15 {
-		options.Depth = 18
-		logrus.Debug("Increased analysis depth to 18 for better EP calculations")
+	// Use performance optimizer to get optimal settings
+	optimizer := NewPerformanceOptimizer()
+	optimalSettings := optimizer.GetOptimalSettings("game_analysis")
+	
+	// Set minimum depth for EP calculations based on optimization
+	if options.Depth < optimalSettings.DepthRecommended {
+		options.Depth = optimalSettings.DepthRecommended
+		logrus.Debugf("Increased analysis depth to %d for better EP calculations", options.Depth)
 	}
 	
 	// Set default ratings if not provided
@@ -289,8 +293,21 @@ func (eas *EnhancedAnalysisService) ValidateEPAnalysisOptions(options *models.An
 	// Enable book move analysis by default
 	options.IncludeBookMoves = true
 	
-	// Set reasonable time per move for accuracy
+	// Set optimal time per move based on system capabilities
 	if options.TimePerMove == 0 {
-		options.TimePerMove = 1500 // 1.5 seconds per move
+		options.TimePerMove = optimalSettings.TimeRecommended
+		logrus.Debugf("Set optimal time per move to %dms based on system capabilities", options.TimePerMove)
 	}
+	
+	// Update Stockfish configuration with optimal settings
+	optimalConfig := optimizer.ConvertToEngineOptions(optimalSettings)
+	if err := eas.stockfishService.UpdateConfig(optimalConfig); err != nil {
+		logrus.Warnf("Could not update Stockfish configuration: %v", err)
+	} else {
+		logrus.Debugf("Updated Stockfish with optimal settings: %d threads, %dMB hash", 
+			optimalConfig.Threads, optimalConfig.Hash)
+	}
+	
+	// Log optimization report for transparency
+	optimizer.LogOptimizationReport("game_analysis")
 } 

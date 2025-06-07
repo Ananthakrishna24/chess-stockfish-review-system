@@ -99,6 +99,14 @@ func main() {
 		{
 			engine.GET("/config", analysisHandler.GetEngineConfig)
 			engine.POST("/config", analysisHandler.UpdateEngineConfig)
+			
+			// Performance optimization endpoints
+			performance := engine.Group("/performance")
+			{
+				performance.GET("/profiles", analysisHandler.GetPerformanceProfiles)
+				performance.POST("/optimize", analysisHandler.OptimizeEngine)
+				performance.GET("/metrics", analysisHandler.GetPerformanceMetrics)
+			}
 		}
 
 		// Opening database endpoints

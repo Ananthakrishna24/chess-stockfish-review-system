@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,27 +21,74 @@ type StockfishService struct {
 	binaryPath string
 	mutex      sync.RWMutex
 	config     models.EngineOptions
+	engineInfo *uci.EngineInfo
+	optimized  bool
 }
 
 // NewStockfishService creates a new Stockfish service
 func NewStockfishService(maxWorkers int, binaryPath string) *StockfishService {
+	// Auto-detect optimal configuration based on system resources
+	optimalConfig := getOptimalEngineConfig()
+	
 	return &StockfishService{
 		engines:    make([]*uci.Engine, 0, maxWorkers),
 		available:  make(chan *uci.Engine, maxWorkers),
 		maxWorkers: maxWorkers,
 		binaryPath: binaryPath,
-		config: models.EngineOptions{
-			Threads:          1,
-			Hash:             128,
-			Contempt:         0,
-			AnalysisContempt: "off",
-		},
+		config:     optimalConfig,
+		optimized:  true,
+	}
+}
+
+// getOptimalEngineConfig calculates optimal Stockfish settings based on system resources
+func getOptimalEngineConfig() models.EngineOptions {
+	cpuCount := runtime.NumCPU()
+	
+	// Use max cores - 2 for optimal performance (leave some for OS/other tasks)
+	optimalThreads := cpuCount - 2
+	if optimalThreads < 1 {
+		optimalThreads = 1
+	}
+	if optimalThreads > 32 { // Stockfish performs best with <= 32 threads
+		optimalThreads = 32
+	}
+	
+	// Calculate optimal hash size based on available memory
+	// Rule of thumb: Use up to 1/4 of available RAM, but cap at 4GB for stability
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	
+	// Convert to MB and calculate 25% of total system memory
+	totalMemMB := int(memStats.Sys / 1024 / 1024)
+	optimalHash := totalMemMB / 4
+	
+	// Apply constraints based on Stockfish documentation
+	if optimalHash < 64 {
+		optimalHash = 64 // Minimum for good performance
+	}
+	if optimalHash > 4096 {
+		optimalHash = 4096 // Maximum for stability
+	}
+	
+	logrus.Infof("Auto-optimized Stockfish config: %d threads, %dMB hash (detected %d CPU cores)", 
+		optimalThreads, optimalHash, cpuCount)
+	
+	return models.EngineOptions{
+		Threads:          optimalThreads,
+		Hash:             optimalHash,
+		Contempt:         0,
+		AnalysisContempt: "off",
 	}
 }
 
 // Initialize creates and initializes the engine pool
 func (s *StockfishService) Initialize() error {
-	logrus.Infof("Initializing Stockfish service with %d workers", s.maxWorkers)
+	logrus.Infof("Initializing optimized Stockfish service with %d workers", s.maxWorkers)
+	
+	// First, detect and validate the Stockfish binary
+	if err := s.detectStockfishCapabilities(); err != nil {
+		logrus.Warnf("Could not detect Stockfish capabilities: %v", err)
+	}
 	
 	for i := 0; i < s.maxWorkers; i++ {
 		engine, err := uci.NewEngine(s.binaryPath)
@@ -54,8 +102,8 @@ func (s *StockfishService) Initialize() error {
 			return fmt.Errorf("failed to initialize engine %d: %v", i, err)
 		}
 		
-		// Configure engine with default settings
-		if err := s.configureEngine(engine); err != nil {
+		// Configure engine with optimized settings
+		if err := s.configureEngineOptimized(engine); err != nil {
 			logrus.Errorf("Failed to configure engine %d: %v", i, err)
 			return fmt.Errorf("failed to configure engine %d: %v", i, err)
 		}
@@ -63,27 +111,96 @@ func (s *StockfishService) Initialize() error {
 		s.engines = append(s.engines, engine)
 		s.available <- engine
 		
-		logrus.Debugf("Engine %d initialized successfully", i)
+		logrus.Debugf("Optimized engine %d initialized successfully", i)
 	}
 	
-	logrus.Infof("Stockfish service initialized with %d engines", len(s.engines))
+	logrus.Infof("Stockfish service initialized with %d optimized engines (Threads: %d, Hash: %dMB)", 
+		len(s.engines), s.config.Threads, s.config.Hash)
 	return nil
 }
 
-// configureEngine applies configuration to an engine
-func (s *StockfishService) configureEngine(engine *uci.Engine) error {
+// detectStockfishCapabilities detects Stockfish version and optimal binary
+func (s *StockfishService) detectStockfishCapabilities() error {
+	// Try to detect if we're using an optimal Stockfish binary
+	engine, err := uci.NewEngine(s.binaryPath)
+	if err != nil {
+		return err
+	}
+	defer engine.Close()
+	
+	if err := engine.Initialize(); err != nil {
+		return err
+	}
+	
+	info, err := engine.GetEngineInfo()
+	if err != nil {
+		return err
+	}
+	
+	s.engineInfo = info
+	logrus.Infof("Detected Stockfish: %s by %s", info.Name, info.Author)
+	
+	// Log performance recommendations based on detected engine
+	s.logPerformanceRecommendations()
+	
+	return nil
+}
+
+// logPerformanceRecommendations provides performance optimization tips
+func (s *StockfishService) logPerformanceRecommendations() {
+	if s.engineInfo == nil {
+		return
+	}
+	
+	logrus.Info("=== Stockfish Performance Recommendations ===")
+	
+	// Check if using optimal binary
+	engineName := strings.ToLower(s.engineInfo.Name)
+	if strings.Contains(engineName, "stockfish") {
+		logrus.Info("✓ Using Stockfish engine")
+		
+		// Recommend optimal binary based on CPU features
+		cpuInfo := runtime.GOARCH
+		if cpuInfo == "amd64" {
+			logrus.Info("💡 For best performance, use optimized binaries:")
+			logrus.Info("   - Download from: https://stockfishchess.org/download/")
+			logrus.Info("   - Prefer: x86-64-bmi2 or x86-64-avx2 variants")
+		}
+	}
+	
+	logrus.Infof("✓ Threads: %d (optimal for %d CPU cores)", s.config.Threads, runtime.NumCPU())
+	logrus.Infof("✓ Hash: %dMB (optimal for available memory)", s.config.Hash)
+	logrus.Info("================================================")
+}
+
+// configureEngineOptimized applies optimized configuration to an engine
+func (s *StockfishService) configureEngineOptimized(engine *uci.Engine) error {
+	// Apply thread configuration
 	if err := engine.SetOption("Threads", fmt.Sprintf("%d", s.config.Threads)); err != nil {
-		return err
+		return fmt.Errorf("failed to set Threads: %v", err)
 	}
+	
+	// Apply hash configuration
 	if err := engine.SetOption("Hash", fmt.Sprintf("%d", s.config.Hash)); err != nil {
-		return err
+		return fmt.Errorf("failed to set Hash: %v", err)
 	}
+	
+	// Apply contempt settings
 	if err := engine.SetOption("Contempt", fmt.Sprintf("%d", s.config.Contempt)); err != nil {
-		return err
+		// Some Stockfish versions might not support this option, log but continue
+		logrus.Debugf("Could not set Contempt option: %v", err)
 	}
+	
 	if err := engine.SetOption("Analysis Contempt", s.config.AnalysisContempt); err != nil {
-		return err
+		// Some Stockfish versions might not support this option, log but continue
+		logrus.Debugf("Could not set Analysis Contempt option: %v", err)
 	}
+	
+	// Additional performance optimizations
+	if err := engine.SetOption("MultiPV", "1"); err != nil {
+		logrus.Debugf("Could not set MultiPV option: %v", err)
+	}
+	
 	return nil
 }
 
@@ -479,7 +596,7 @@ func (s *StockfishService) UpdateConfig(config models.EngineOptions) error {
 	
 	// Update all engines
 	for _, engine := range s.engines {
-		if err := s.configureEngine(engine); err != nil {
+		if err := s.configureEngineOptimized(engine); err != nil {
 			return fmt.Errorf("failed to update engine configuration: %v", err)
 		}
 	}

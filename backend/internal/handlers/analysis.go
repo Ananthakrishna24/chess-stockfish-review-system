@@ -189,4 +189,95 @@ func (h *AnalysisHandler) UpdateEngineConfig(c *gin.Context) {
 		"message": "Configuration updated successfully",
 		"config": config,
 	})
+}
+
+// GetPerformanceProfiles returns available optimization profiles
+// GET /api/engine/performance/profiles
+func (h *AnalysisHandler) GetPerformanceProfiles(c *gin.Context) {
+	optimizer := services.NewPerformanceOptimizer()
+	profiles := optimizer.GetAllProfiles()
+	
+	c.JSON(http.StatusOK, gin.H{
+		"profiles": profiles,
+		"metrics": optimizer.GetPerformanceMetrics(),
+	})
+}
+
+// OptimizeEngine applies optimal settings for a specific use case
+// POST /api/engine/performance/optimize
+func (h *AnalysisHandler) OptimizeEngine(c *gin.Context) {
+	var request struct {
+		Profile string `json:"profile" binding:"required"`
+	}
+	
+	if err := c.ShouldBindJSON(&request); err != nil {
+		logrus.Errorf("Invalid optimization request: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid request format",
+			"details": err.Error(),
+		})
+		return
+	}
+	
+	optimizer := services.NewPerformanceOptimizer()
+	
+	// Validate profile exists
+	validProfiles := map[string]bool{
+		"fast_analysis": true,
+		"balanced": true,
+		"game_analysis": true,
+		"deep_analysis": true,
+		"bulk_analysis": true,
+	}
+	
+	if !validProfiles[request.Profile] {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "Invalid profile",
+			"valid_profiles": []string{"fast_analysis", "balanced", "game_analysis", "deep_analysis", "bulk_analysis"},
+		})
+		return
+	}
+	
+	// Get optimal settings for the profile
+	settings := optimizer.GetOptimalSettings(request.Profile)
+	engineOptions := optimizer.ConvertToEngineOptions(settings)
+	
+	// Apply the settings
+	configRequest := models.UpdateEngineConfigRequest{
+		Threads: &engineOptions.Threads,
+		Hash: &engineOptions.Hash,
+		Contempt: &engineOptions.Contempt,
+		AnalysisContempt: &engineOptions.AnalysisContempt,
+	}
+	
+	if err := h.analysisService.UpdateEngineConfig(configRequest); err != nil {
+		logrus.Errorf("Failed to apply optimized engine configuration: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "Failed to apply optimization",
+			"details": err.Error(),
+		})
+		return
+	}
+	
+	// Log the optimization report
+	optimizer.LogOptimizationReport(request.Profile)
+	
+	// Return the applied settings
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Engine optimized successfully",
+		"profile": request.Profile,
+		"applied_settings": settings,
+		"config": h.analysisService.GetEngineConfig(),
+	})
+}
+
+// GetPerformanceMetrics returns current system performance metrics
+// GET /api/engine/performance/metrics
+func (h *AnalysisHandler) GetPerformanceMetrics(c *gin.Context) {
+	optimizer := services.NewPerformanceOptimizer()
+	
+	c.JSON(http.StatusOK, gin.H{
+		"metrics": optimizer.GetPerformanceMetrics(),
+		"engine_config": h.analysisService.GetEngineConfig(),
+	})
 } 
