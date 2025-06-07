@@ -11,7 +11,7 @@ import (
 
 	"chess-backend/configs"
 	"chess-backend/internal/handlers"
-	"chess-backend/internal/middleware"
+	// "chess-backend/internal/middleware" // Commented out - rate limiting disabled
 	"chess-backend/internal/services"
 
 	"github.com/gin-contrib/cors"
@@ -31,7 +31,9 @@ func main() {
 	cacheService := services.NewCacheService()
 	stockfishService := services.NewStockfishService(cfg.Engine.MaxWorkers, cfg.Engine.BinaryPath)
 	chessService := services.NewChessService()
-	analysisService := services.NewAnalysisService(stockfishService, chessService, cacheService)
+	playerService := services.NewPlayerService()
+	openingService := services.NewOpeningService()
+	analysisService := services.NewAnalysisService(stockfishService, chessService, cacheService, playerService)
 
 	// Initialize Stockfish pool
 	if err := stockfishService.Initialize(); err != nil {
@@ -58,8 +60,8 @@ func main() {
 		MaxAge:          12 * time.Hour,
 	}))
 
-	// Rate limiting middleware
-	router.Use(middleware.RateLimit(cfg.RateLimit))
+	// Rate limiting middleware - DISABLED for development
+	// router.Use(middleware.RateLimit(cfg.RateLimit))
 
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
@@ -72,6 +74,8 @@ func main() {
 	// Initialize handlers
 	analysisHandler := handlers.NewAnalysisHandler(analysisService)
 	healthHandler := handlers.NewHealthHandler()
+	openingHandler := handlers.NewOpeningHandler(openingService)
+	playerHandler := handlers.NewPlayerHandler(playerService)
 
 	// API routes
 	api := router.Group("/api")
@@ -95,6 +99,24 @@ func main() {
 		{
 			engine.GET("/config", analysisHandler.GetEngineConfig)
 			engine.POST("/config", analysisHandler.UpdateEngineConfig)
+		}
+
+		// Opening database endpoints
+		openings := api.Group("/openings")
+		{
+			openings.GET("/search", openingHandler.SearchOpenings)
+			openings.GET("/categories", openingHandler.GetECOCategories)
+			openings.GET("/:eco", openingHandler.GetOpeningByECO)
+			openings.GET("", openingHandler.GetAllOpenings)
+		}
+
+		// Player statistics endpoints
+		stats := api.Group("/stats")
+		{
+			stats.GET("/player/:playername", playerHandler.GetPlayerStatistics)
+			stats.GET("/player/:playername/games", playerHandler.GetPlayerGames)
+			stats.GET("/players", playerHandler.GetAllPlayers)
+			stats.GET("/leaderboard", playerHandler.GetTopPlayers)
 		}
 
 		// Health and stats

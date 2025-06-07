@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Progress } from '@/components/ui/Progress';
 import { Textarea } from '@/components/ui/Input';
 import { useGameAnalysis } from '@/hooks/useGameAnalysis';
+import { useChessGame } from '@/hooks/useChessGame';
 import { convertScoreToString, getScoreColor } from '@/utils/stockfish';
 import { Play, Pause, RotateCcw, BarChart3, Star, ThumbsUp, X, AlertTriangle, SkipBack, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
@@ -416,22 +417,11 @@ export default function Home() {
   const dispatch = useAppDispatch();
   const { isReviewMode } = useAppSelector(state => state.reviewMode);
   
+  const chessGame = useChessGame();
   const {
-    gameState,
-    currentPosition,
-    currentMoveIndex,
-    isLoading,
-    error,
-    goToMove,
-    goToStart,
-    goToEnd,
-    goForward,
-    goBackward,
     gameAnalysis,
     isAnalyzingGame,
     analysisProgress,
-    loadGame,
-    resetGame,
     stopAnalysis,
     analyzeCompleteGame
   } = useGameAnalysis();
@@ -446,25 +436,25 @@ export default function Home() {
 
   // Keyboard event handling for review mode
   React.useEffect(() => {
-    if (!isReviewMode || !gameState) return;
+    if (!isReviewMode || !chessGame.gameState) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       switch (event.key) {
         case 'ArrowLeft':
           event.preventDefault();
-          if (currentMoveIndex > -1) goBackward();
+          if (chessGame.currentMoveIndex > -1) chessGame.goBackward();
           break;
         case 'ArrowRight':
           event.preventDefault();
-          if (currentMoveIndex < gameState.moves.length - 1) goForward();
+          if (chessGame.currentMoveIndex < chessGame.gameState.moves.length - 1) chessGame.goForward();
           break;
         case 'Home':
           event.preventDefault();
-          goToStart();
+          chessGame.goToStart();
           break;
         case 'End':
           event.preventDefault();
-          goToEnd();
+          chessGame.goToEnd();
           break;
         case 'Escape':
           event.preventDefault();
@@ -475,11 +465,26 @@ export default function Home() {
 
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isReviewMode, gameState, currentMoveIndex, goBackward, goForward, goToStart, goToEnd, dispatch]);
+  }, [isReviewMode, chessGame.gameState, chessGame.currentMoveIndex, chessGame.goBackward, chessGame.goForward, chessGame.goToStart, chessGame.goToEnd, dispatch]);
 
   const handleLoadPGN = async (pgn: string) => {
     if (!pgn.trim()) return;
-    await loadGame(pgn, { depth });
+    
+    try {
+      console.log('Loading PGN and starting analysis...');
+      
+      // Load the game first using the chess game hook
+      await chessGame.loadGame(pgn);
+      
+      // Start analysis immediately with the PGN
+      await analyzeCompleteGame({ 
+        depth, 
+        timePerMove: 1000, 
+        pgn: pgn.trim() 
+      });
+    } catch (error) {
+      console.error('Failed to load and analyze game:', error);
+    }
   };
   
   const samplePGN = `[Event "Rated Blitz game"]
@@ -500,7 +505,7 @@ export default function Home() {
     
     // For starting position (currentMoveIndex === -1), the evaluation should be 0
     // The starting position is equal for both sides
-    if (currentMoveIndex < 0) {
+    if (chessGame.currentMoveIndex < 0) {
       return 0; // Starting position should always be 0.0 (equal)
     }
     
@@ -508,11 +513,11 @@ export default function Home() {
     // evalHistory[0] = starting position eval (should be ~0)
     // evalHistory[1] = after first move eval
     // evalHistory[2] = after second move eval, etc.
-    const evalIndex = Math.min(currentMoveIndex + 1, evalHistory.length - 1);
+    const evalIndex = Math.min(chessGame.currentMoveIndex + 1, evalHistory.length - 1);
     return evalHistory[evalIndex]?.score || 0;
   };
 
-  const mainContent = gameState ? (
+  const mainContent = chessGame.gameState ? (
     <div className="flex-1 flex justify-center items-center overflow-hidden min-h-screen">
       {/* Main Game Layout */}
       <div className="flex items-start gap-8">
@@ -529,19 +534,19 @@ export default function Home() {
           {/* Board Section with Player Info */}
           <div className="flex flex-col">
             <PlayerInfoBar
-              playerName={gameState.gameInfo.white || 'Player 1'}
-              playerRating={gameState.gameInfo.whiteRating}
+              playerName={chessGame.gameState.gameInfo.white || 'Player 1'}
+              playerRating={chessGame.gameState.gameInfo.whiteRating}
               className="mb-6 w-[750px]"
             />
             <div className="w-[750px] h-[750px]">
               <ChessBoard
-                position={currentPosition}
+                position={chessGame.currentPosition}
                 orientation={boardOrientation}
               />
             </div>
             <PlayerInfoBar
-              playerName={gameState.gameInfo.black || 'Player 2'}
-              playerRating={gameState.gameInfo.blackRating}
+              playerName={chessGame.gameState.gameInfo.black || 'Player 2'}
+              playerRating={chessGame.gameState.gameInfo.blackRating}
               className="mt-6 w-[750px]"
             />
           </div>
@@ -552,22 +557,22 @@ export default function Home() {
           <div className="self-start">
             <AnalysisPanel 
               gameAnalysis={gameAnalysis}
-              gameState={gameState}
-              goToMove={goToMove}
-              goToStart={goToStart}
-              currentMoveIndex={currentMoveIndex}
+              gameState={chessGame.gameState}
+              goToMove={chessGame.goToMove}
+              goToStart={chessGame.goToStart}
+              currentMoveIndex={chessGame.currentMoveIndex}
               isAnalyzingGame={isAnalyzingGame}
               analysisProgress={analysisProgress}
               stopAnalysis={stopAnalysis}
               analyzeCompleteGame={analyzeCompleteGame}
-              goToEnd={goToEnd}
-              goForward={goForward}
-              goBackward={goBackward}
-              canGoBackward={currentMoveIndex > -1}
-              canGoForward={currentMoveIndex < gameState.moves.length - 1}
-              isAtStart={currentMoveIndex === -1}
-              isAtEnd={currentMoveIndex === gameState.moves.length - 1}
-              totalMoves={gameState.moves.length}
+              goToEnd={chessGame.goToEnd}
+              goForward={chessGame.goForward}
+              goBackward={chessGame.goBackward}
+              canGoBackward={chessGame.currentMoveIndex > -1}
+              canGoForward={chessGame.currentMoveIndex < chessGame.gameState.moves.length - 1}
+              isAtStart={chessGame.currentMoveIndex === -1}
+              isAtEnd={chessGame.currentMoveIndex === chessGame.gameState.moves.length - 1}
+              totalMoves={chessGame.gameState.moves.length}
               flipBoard={flipBoard}
               boardOrientation={boardOrientation}
             />
@@ -612,7 +617,7 @@ export default function Home() {
               </p>
             </div>
             <div className="flex gap-3 mt-4">
-              <Button onClick={() => handleLoadPGN(pgnInput)} isLoading={isLoading} className="flex-1">
+              <Button onClick={() => handleLoadPGN(pgnInput)} isLoading={isAnalyzingGame} className="flex-1">
                 Start Review
               </Button>
               <Button onClick={() => handleLoadPGN(samplePGN)} variant="secondary">

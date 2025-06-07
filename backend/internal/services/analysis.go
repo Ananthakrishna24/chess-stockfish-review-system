@@ -16,16 +16,18 @@ type AnalysisService struct {
 	stockfishService *StockfishService
 	chessService     *ChessService
 	cacheService     *CacheService
+	playerService    *PlayerService
 	activeJobs       map[string]*models.AnalysisJob
 	jobsMutex        sync.RWMutex
 }
 
 // NewAnalysisService creates a new analysis service
-func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService) *AnalysisService {
+func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService, player *PlayerService) *AnalysisService {
 	return &AnalysisService{
 		stockfishService: stockfish,
 		chessService:     chess,
 		cacheService:     cache,
+		playerService:    player,
 		activeJobs:       make(map[string]*models.AnalysisJob),
 	}
 }
@@ -113,6 +115,12 @@ func (s *AnalysisService) processGameAnalysis(job *models.AnalysisJob) {
 	
 	// Store in cache
 	s.cacheService.StoreAnalysis(job.ID, response)
+	
+	// Update player statistics
+	if s.playerService != nil {
+		s.playerService.RecordGameAnalysis(&response)
+		logrus.Debugf("Updated player statistics for game %s", job.ID)
+	}
 	
 	// Update job with result
 	job.SetResult(&response)

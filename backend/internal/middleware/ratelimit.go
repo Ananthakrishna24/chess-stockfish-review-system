@@ -34,10 +34,14 @@ func (rl *RateLimiter) getLimiter(ip string, limit int) *rate.Limiter {
 
 	limiter, exists := rl.limiters[ip]
 	if !exists {
-		// Create new limiter with burst size of 5 and rate based on hourly limit
+		// Create new limiter with higher burst size and rate based on hourly limit
 		// Convert hourly limit to per-second rate
 		perSecondRate := rate.Limit(float64(limit) / 3600.0)
-		limiter = rate.NewLimiter(perSecondRate, 5) // Allow burst of 5
+		burstSize := 100 // Allow burst of 100 requests
+		if limit > 100000 {
+			burstSize = 1000 // Higher burst for high-limit endpoints
+		}
+		limiter = rate.NewLimiter(perSecondRate, burstSize)
 		rl.limiters[ip] = limiter
 	}
 
@@ -96,9 +100,15 @@ func RateLimit(config configs.RateLimitConfig) gin.HandlerFunc {
 		case path == "/api/positions/analyze":
 			limit = config.PositionAnalysisPerHour
 			limitType = "position_analysis"
+		case path == "/api/openings/search" || path == "/api/openings/:eco" || path == "/api/openings" || path == "/api/openings/categories":
+			limit = config.OpeningLookupsPerHour
+			limitType = "opening_lookups"
+		case path == "/api/stats/player/:playername" || path == "/api/stats/player/:playername/games" || path == "/api/stats/players" || path == "/api/stats/leaderboard":
+			limit = config.PlayerStatsPerHour
+			limitType = "player_stats"
 		default:
-			// Default limit for other endpoints
-			limit = 1000
+			// Very high default limit for other endpoints
+			limit = 1000000
 			limitType = "general"
 		}
 

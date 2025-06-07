@@ -41,6 +41,7 @@ type RateLimitConfig struct {
 	GameAnalysisPerHour     int
 	PositionAnalysisPerHour int
 	OpeningLookupsPerHour   int
+	PlayerStatsPerHour      int
 }
 
 func Load() *Config {
@@ -61,9 +62,10 @@ func Load() *Config {
 	viper.SetDefault("ENGINE_CONTEMPT", 0)
 	viper.SetDefault("ENGINE_ANALYSIS_CONTEMPT", "off")
 
-	viper.SetDefault("RATE_LIMIT_GAME_ANALYSIS_PER_HOUR", 10)
-	viper.SetDefault("RATE_LIMIT_POSITION_ANALYSIS_PER_HOUR", 100)
-	viper.SetDefault("RATE_LIMIT_OPENING_LOOKUPS_PER_HOUR", 1000)
+	viper.SetDefault("RATE_LIMIT_GAME_ANALYSIS_PER_HOUR", 10000)
+	viper.SetDefault("RATE_LIMIT_POSITION_ANALYSIS_PER_HOUR", 100000)
+	viper.SetDefault("RATE_LIMIT_OPENING_LOOKUPS_PER_HOUR", 1000000)
+	viper.SetDefault("RATE_LIMIT_PLAYER_STATS_PER_HOUR", 500000)
 
 	viper.AutomaticEnv()
 
@@ -97,6 +99,7 @@ func Load() *Config {
 			GameAnalysisPerHour:     viper.GetInt("RATE_LIMIT_GAME_ANALYSIS_PER_HOUR"),
 			PositionAnalysisPerHour: viper.GetInt("RATE_LIMIT_POSITION_ANALYSIS_PER_HOUR"),
 			OpeningLookupsPerHour:   viper.GetInt("RATE_LIMIT_OPENING_LOOKUPS_PER_HOUR"),
+			PlayerStatsPerHour:      viper.GetInt("RATE_LIMIT_PLAYER_STATS_PER_HOUR"),
 		},
 	}
 } 

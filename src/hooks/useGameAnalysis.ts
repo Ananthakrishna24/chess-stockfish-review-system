@@ -1,22 +1,29 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useChessGame } from './useChessGame';
-import { useStockfish } from './useStockfish';
-import { GameAnalysis, MoveAnalysis, PlayerStatistics, EngineEvaluation } from '@/types/analysis';
-import { ChessGameManager } from '@/utils/chess';
+import { GameAnalysis, MoveAnalysis, PlayerStatistics, EngineEvaluation, AnalysisProgress } from '@/types/analysis';
+import { apiClient, ApiError } from '@/lib/api';
 
 interface AnalysisOptions {
   depth?: number;
+  timePerMove?: number;
+  includeBookMoves?: boolean;
+  includeTacticalAnalysis?: boolean;
 }
 
 export function useGameAnalysis() {
   const chessGame = useChessGame();
-  const stockfish = useStockfish();
   
   const [gameAnalysis, setGameAnalysis] = useState<GameAnalysis | null>(null);
   const [isAnalyzingGame, setIsAnalyzingGame] = useState(false);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<number>(0);
+  const [currentGameId, setCurrentGameId] = useState<string | null>(null);
+  
+  // Polling ref for checking analysis progress
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Load analysis from localStorage on mount
   useEffect(() => {
@@ -55,203 +62,238 @@ export function useGameAnalysis() {
     }
   }, [gameAnalysis, chessGame.gameState]);
 
-  const analyzeCurrentPosition = useCallback(async () => {
-    if (!chessGame.currentPosition || !stockfish.isReady) return null;
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+      }
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  const analyzeCurrentPosition = useCallback(async (): Promise<EngineEvaluation | null> => {
+    if (!chessGame.currentPosition) return null;
     
-    return await stockfish.analyzePosition(chessGame.currentPosition);
-  }, [chessGame.currentPosition, stockfish]);
-
-  const analyzeCompleteGame = useCallback(async (options?: AnalysisOptions) => {
-    if (options?.depth) {
-      stockfish.updateConfig({ depth: options.depth });
+    try {
+      const result = await apiClient.analyzePosition({
+        fen: chessGame.currentPosition,
+        depth: 15,
+        multiPv: 1,
+        timeLimit: 5000
+      });
+      
+      return result.evaluation;
+    } catch (error) {
+      console.error('Position analysis failed:', error);
+      setAnalysisError(error instanceof ApiError ? error.message : 'Position analysis failed');
+      return null;
     }
+  }, [chessGame.currentPosition]);
 
-    if (!chessGame.gameState || !stockfish.isReady) {
-      setAnalysisError('Game or engine not ready');
+  const pollAnalysisProgress = useCallback(async (gameId: string) => {
+    try {
+      const response = await apiClient.getAnalysisProgress(gameId);
+      
+      if (response.status === 'completed') {
+        // Analysis is complete, get the results
+        const analysisResult = await apiClient.getGameAnalysis(gameId);
+        setGameAnalysis(analysisResult.analysis);
+        setIsAnalyzingGame(false);
+        setAnalysisProgress(100);
+        setCurrentGameId(null);
+        
+        if (progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
+        }
+        
+        return true; // Analysis complete
+      } else if (response.status === 'failed') {
+        throw new Error('Analysis failed on server');
+      } else {
+        // Still analyzing, update progress
+        const progressPercent = response.progress.percentage || 
+          (response.progress.currentMove / response.progress.totalMoves) * 100;
+        setAnalysisProgress(progressPercent);
+        return false; // Still analyzing
+      }
+    } catch (error) {
+      console.error('Failed to check analysis progress:', error);
+      setAnalysisError(error instanceof ApiError ? error.message : 'Failed to check analysis progress');
+      setIsAnalyzingGame(false);
+      setCurrentGameId(null);
+      
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      
+      return true; // Stop polling on error
+    }
+  }, []);
+
+  const analyzeCompleteGame = useCallback(async (options?: AnalysisOptions & { pgn?: string }) => {
+    // Use provided PGN or fall back to gameState
+    const gameState = chessGame.gameState;
+    const pgnToAnalyze = options?.pgn || gameState?.pgn;
+    
+    if (!pgnToAnalyze) {
+      setAnalysisError('No game or PGN provided for analysis');
       return;
     }
 
     setIsAnalyzingGame(true);
     setAnalysisError(null);
+    setAnalysisProgress(0);
+
+    // Create abort controller for this analysis session
+    abortControllerRef.current = new AbortController();
 
     try {
-      const { moves } = chessGame.gameState;
-      const gameManager = new ChessGameManager();
-      
-      // Get all positions in the game
-      const positions: string[] = [];
-      positions.push('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'); // Starting position
-      
-      // Load the game and get positions after each move
-      gameManager.loadPGN(chessGame.gameState.pgn);
-      for (let i = 0; i < moves.length; i++) {
-        const position = gameManager.getPosition(i);
-        positions.push(position);
-      }
+      // Extract player ratings from game info if available
+      const playerRatings = gameState ? {
+        white: gameState.gameInfo.whiteRating,
+        black: gameState.gameInfo.blackRating
+      } : undefined;
 
-      // Analyze all positions
-      const evaluations = await stockfish.analyzeGame(positions, (progress) => {
-        // Progress callback could be used to update UI
-        console.log(`Analysis progress: ${progress.progress.toFixed(1)}%`);
-      });
+      console.log('Starting game analysis with PGN:', pgnToAnalyze.substring(0, 100) + '...');
 
-      if (evaluations.length === 0) {
-        throw new Error('Analysis failed - no evaluations received');
-      }
-
-      // Process move analysis
-      const moveAnalyses: MoveAnalysis[] = [];
-      
-      for (let i = 0; i < moves.length; i++) {
-        const move = moves[i];
-        const positionBefore = evaluations[i];
-        const positionAfter = evaluations[i + 1];
-        
-        if (positionBefore && positionAfter) {
-          const bestMove = positionBefore.bestMove;
-          const isWhiteMove = i % 2 === 0;
-          const playerRating = isWhiteMove 
-            ? (chessGame.gameState.gameInfo.whiteRating || 1500)
-            : (chessGame.gameState.gameInfo.blackRating || 1500);
-          
-          const classification = stockfish.classifyMove(
-            positionBefore,
-            positionAfter,
-            move.from + move.to,
-            bestMove,
-            playerRating
-          );
-
-          const moveAnalysis: MoveAnalysis = {
-            move: move.from + move.to,
-            san: move.san,
-            evaluation: positionAfter,
-            classification,
-            alternativeMoves: [{
-              move: bestMove,
-              evaluation: positionBefore
-            }]
-          };
-
-          moveAnalyses.push(moveAnalysis);
-        }
-      }
-
-      // Calculate player statistics
-      const whiteStats = calculatePlayerStats(moveAnalyses.filter((_, i) => i % 2 === 0));
-      const blackStats = calculatePlayerStats(moveAnalyses.filter((_, i) => i % 2 === 1));
-
-      // Calculate accuracies using the evaluations from the actual move analysis
-      // Since moveAnalyses already has the correct evaluations for each move,
-      // we can extract them from there to ensure proper white/black separation
-      const whiteEvaluations: EngineEvaluation[] = [];
-      const blackEvaluations: EngineEvaluation[] = [];
-      
-      moveAnalyses.forEach((moveAnalysis, index) => {
-        const isWhiteMove = index % 2 === 0;
-        if (isWhiteMove) {
-          whiteEvaluations.push(moveAnalysis.evaluation);
-        } else {
-          blackEvaluations.push(moveAnalysis.evaluation);
+      // Start game analysis via API
+      const analysisResponse = await apiClient.analyzeGame({
+        pgn: pgnToAnalyze,
+        options: {
+          depth: options?.depth || 15,
+          timePerMove: options?.timePerMove || 1000,
+          includeBookMoves: options?.includeBookMoves ?? true,
+          includeTacticalAnalysis: options?.includeTacticalAnalysis ?? true,
+          playerRatings
         }
       });
-      
-      whiteStats.accuracy = stockfish.calculateAccuracy(whiteEvaluations);
-      blackStats.accuracy = stockfish.calculateAccuracy(blackEvaluations);
 
-      // Debug logging
-      console.log('White move count:', whiteEvaluations.length);
-      console.log('Black move count:', blackEvaluations.length);
-      console.log('Total moves:', moveAnalyses.length);
-      console.log('White stats:', whiteStats);
-      console.log('Black stats:', blackStats);
+      console.log('Analysis started with gameId:', analysisResponse.gameId);
+      setCurrentGameId(analysisResponse.gameId);
 
-      // Detect critical moments and analyze game phases
-      const criticalMoments = stockfish.engine?.detectCriticalMoments(evaluations) || [];
-      const phaseAnalysis = stockfish.engine?.analyzeGamePhases(moves, evaluations) || {
-        opening: Math.min(10, moves.length),
-        middlegame: Math.min(25, moves.length), 
-        endgame: moves.length,
-        openingAccuracy: whiteStats.accuracy,
-        middlegameAccuracy: whiteStats.accuracy,
-        endgameAccuracy: whiteStats.accuracy
-      };
-
-      // Calculate tactical statistics
-      whiteStats.tacticalMoves = 0;
-      whiteStats.forcingMoves = 0;
-      blackStats.tacticalMoves = 0;
-      blackStats.forcingMoves = 0;
-
-      // Analyze each move for tactical patterns
-      for (let i = 0; i < moveAnalyses.length; i++) {
-        const moveAnalysis = moveAnalyses[i];
-        const positionBefore = evaluations[i];
-        const positionAfter = evaluations[i + 1];
-        
-        if (positionBefore && positionAfter && stockfish.engine) {
-          const tacticalAnalysis = stockfish.engine.analyzeTacticalPatterns(
-            positionBefore,
-            positionAfter,
-            moveAnalysis.move
-          );
-          
-          moveAnalysis.tacticalAnalysis = tacticalAnalysis;
-          
-          const isWhiteMove = i % 2 === 0;
-          if (isWhiteMove) {
-            if (tacticalAnalysis.isTactical) whiteStats.tacticalMoves!++;
-            if (tacticalAnalysis.isForcing) whiteStats.forcingMoves!++;
-          } else {
-            if (tacticalAnalysis.isTactical) blackStats.tacticalMoves!++;
-            if (tacticalAnalysis.isForcing) blackStats.forcingMoves!++;
-          }
+      // Start polling for progress
+      progressIntervalRef.current = setInterval(async () => {
+        const isComplete = await pollAnalysisProgress(analysisResponse.gameId);
+        if (isComplete && progressIntervalRef.current) {
+          clearInterval(progressIntervalRef.current);
+          progressIntervalRef.current = null;
         }
-      }
+      }, 1000); // Poll every second
 
-      // Create complete game analysis
-      const analysis: GameAnalysis = {
-        moves: moveAnalyses,
-        whiteStats,
-        blackStats,
-        openingAnalysis: {
-          name: chessGame.gameState.gameInfo.opening || 'Unknown',
-          eco: chessGame.gameState.gameInfo.eco || '',
-          accuracy: Math.max(whiteStats.accuracy, blackStats.accuracy)
-        },
-        gamePhases: {
-          opening: phaseAnalysis.opening,
-          middlegame: phaseAnalysis.middlegame,
-          endgame: phaseAnalysis.endgame
-        },
-        criticalMoments,
-        evaluationHistory: evaluations,
-        phaseAnalysis: {
-          openingAccuracy: phaseAnalysis.openingAccuracy,
-          middlegameAccuracy: phaseAnalysis.middlegameAccuracy,
-          endgameAccuracy: phaseAnalysis.endgameAccuracy
-        },
-        gameResult: {
-          result: chessGame.gameState.gameInfo.result as any || '*',
-          termination: chessGame.gameState.gameInfo.termination || 'Unknown',
-          winningAdvantage: Math.max(...evaluations.map(e => Math.abs(e.score)))
-        }
-      };
-
-      setGameAnalysis(analysis);
-      
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
-      setAnalysisError(errorMessage);
-      console.error('Game analysis error:', error);
-    } finally {
+      console.error('Game analysis failed:', error);
+      setAnalysisError(error instanceof ApiError ? error.message : 'Game analysis failed');
       setIsAnalyzingGame(false);
+      setCurrentGameId(null);
     }
-  }, [chessGame.gameState, stockfish]);
+  }, [chessGame.gameState, pollAnalysisProgress]);
 
-  const calculatePlayerStats = (playerMoves: MoveAnalysis[]): PlayerStatistics => {
-    const stats: PlayerStatistics = {
-      accuracy: 0,
+  const stopAnalysis = useCallback(() => {
+    // Stop polling
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    
+    // Abort any ongoing requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    
+    setIsAnalyzingGame(false);
+    setAnalysisProgress(0);
+    setCurrentGameId(null);
+    
+    console.log('Analysis stopped by user');
+  }, []);
+
+  // Helper function to get best move for current position
+  const getBestMove = useCallback(async (): Promise<string | null> => {
+    const evaluation = await analyzeCurrentPosition();
+    return evaluation?.bestMove || null;
+  }, [analyzeCurrentPosition]);
+
+  // Helper function to classify a move (kept for backward compatibility)
+  const classifyMove = useCallback((
+    positionBefore: EngineEvaluation,
+    positionAfter: EngineEvaluation,
+    playedMove: string,
+    bestMove: string,
+    playerRating: number = 1500
+  ) => {
+    // Since classification is now done on the server, this is mainly for legacy support
+    // The actual classification will be provided by the API analysis results
+    const beforeScore = positionBefore.score;
+    const afterScore = -positionAfter.score; // Flip for current player
+    const scoreDiff = afterScore - beforeScore;
+    
+    if (playedMove === bestMove) return 'best';
+    if (scoreDiff >= 50) return 'excellent';
+    if (scoreDiff >= 0) return 'good';
+    if (scoreDiff >= -50) return 'inaccuracy';
+    if (scoreDiff >= -150) return 'mistake';
+    return 'blunder';
+  }, []);
+
+  // Helper function to calculate accuracy (kept for backward compatibility)
+  const calculateAccuracy = useCallback((evaluations: EngineEvaluation[]): number => {
+    if (evaluations.length === 0) return 0;
+    
+    // Simple accuracy calculation based on evaluation consistency
+    let totalAccuracy = 0;
+    for (let i = 1; i < evaluations.length; i++) {
+      const scoreDiff = Math.abs(evaluations[i].score - evaluations[i-1].score);
+      const moveAccuracy = Math.max(0, 100 - scoreDiff / 10);
+      totalAccuracy += moveAccuracy;
+    }
+    
+    return totalAccuracy / (evaluations.length - 1);
+  }, []);
+
+  return {
+    // Analysis state
+    gameAnalysis,
+    isAnalyzingGame,
+    analysisError,
+    analysisProgress,
+    currentGameId,
+    
+    // Analysis functions
+    analyzeCompleteGame,
+    analyzeCurrentPosition,
+    stopAnalysis,
+    
+    // Helper functions (for backward compatibility)
+    getBestMove,
+    classifyMove,
+    calculateAccuracy,
+    
+    // Chess game state (delegated)
+    ...chessGame
+  };
+}
+
+// Export helper functions for backward compatibility
+export const calculatePlayerStats = (playerMoves: MoveAnalysis[]): PlayerStatistics => {
+  const stats: PlayerStatistics = {
+    accuracy: 0,
+    brilliant: 0,
+    great: 0,
+    best: 0,
+    excellent: 0,
+    good: 0,
+    book: 0,
+    inaccuracy: 0,
+    mistake: 0,
+    blunder: 0,
+    miss: 0,
+    moveCounts: {
       brilliant: 0,
       great: 0,
       best: 0,
@@ -261,118 +303,44 @@ export function useGameAnalysis() {
       inaccuracy: 0,
       mistake: 0,
       blunder: 0,
-      miss: 0,
-      moveCounts: {
-        brilliant: 0,
-        great: 0,
-        best: 0,
-        excellent: 0,
-        good: 0,
-        book: 0,
-        inaccuracy: 0,
-        mistake: 0,
-        blunder: 0,
-        miss: 0,
-      }
-    };
-
-    playerMoves.forEach(move => {
-      stats[move.classification]++;
-      stats.moveCounts[move.classification]++;
-    });
-
-    return stats;
+      miss: 0
+    },
+    tacticalMoves: 0,
+    forcingMoves: 0,
+    criticalMoments: 0
   };
 
-  const getMoveAnalysis = useCallback((moveIndex: number): MoveAnalysis | null => {
-    if (!gameAnalysis || moveIndex < 0 || moveIndex >= gameAnalysis.moves.length) {
-      return null;
+  if (playerMoves.length === 0) return stats;
+
+  // Count moves by classification
+  playerMoves.forEach(move => {
+    const classification = move.classification;
+    stats[classification]++;
+    stats.moveCounts[classification]++;
+    
+    if (move.tacticalAnalysis?.isTactical) {
+      stats.tacticalMoves = (stats.tacticalMoves || 0) + 1;
     }
-    return gameAnalysis.moves[moveIndex];
-  }, [gameAnalysis]);
-
-  const getCurrentMoveAnalysis = useCallback((): MoveAnalysis | null => {
-    return getMoveAnalysis(chessGame.currentMoveIndex);
-  }, [getMoveAnalysis, chessGame.currentMoveIndex]);
-
-  const getPositionEvaluation = useCallback((moveIndex: number): EngineEvaluation | null => {
-    const moveAnalysis = getMoveAnalysis(moveIndex);
-    return moveAnalysis?.evaluation || null;
-  }, [getMoveAnalysis]);
-
-  const stopAnalysis = useCallback(() => {
-    stockfish.stopAnalysis();
-    setIsAnalyzingGame(false);
-  }, [stockfish]);
-
-  const resetGame = useCallback(() => {
-    setGameAnalysis(null);
-    setAnalysisError(null);
-    setIsAnalyzingGame(false);
-    localStorage.removeItem('chess-analysis');
-    localStorage.removeItem('chess-game-state');
-    chessGame.resetGame();
-  }, [chessGame]);
-
-  const loadGameAndAnalyze = useCallback(async (pgn: string, options?: AnalysisOptions) => {
-    // Clear existing analysis when loading new game
-    setGameAnalysis(null);
-    localStorage.removeItem('chess-analysis');
-    localStorage.removeItem('chess-game-state');
-    
-    chessGame.loadGame(pgn);
-    // The useEffect will trigger analysis, but we need to set config first
-    if (options?.depth) {
-      stockfish.updateConfig({ depth: options.depth });
+    if (move.tacticalAnalysis?.isForcing) {
+      stats.forcingMoves = (stats.forcingMoves || 0) + 1;
     }
-  }, [chessGame, stockfish]);
+  });
 
-  // Auto-analyze when game is loaded and engine is ready
-  useEffect(() => {
-    if (chessGame.gameState && stockfish.isReady && !gameAnalysis && !isAnalyzingGame) {
-      console.log('Starting automatic game analysis...');
-      setTimeout(() => {
-        analyzeCompleteGame();
-      }, 500); // Increased delay to ensure engine is fully ready
-    }
-  }, [chessGame.gameState, stockfish.isReady, gameAnalysis, isAnalyzingGame, analyzeCompleteGame]);
+  // Calculate accuracy based on move quality
+  const totalMoves = playerMoves.length;
+  const weightedScore = 
+    stats.brilliant * 100 +
+    stats.great * 95 +
+    stats.best * 90 +
+    stats.excellent * 85 +
+    stats.good * 80 +
+    stats.book * 85 +
+    stats.inaccuracy * 70 +
+    stats.mistake * 50 +
+    stats.blunder * 20 +
+    stats.miss * 30;
 
-  return {
-    // Chess game state
-    ...chessGame,
-    
-    // Stockfish state
-    engineReady: stockfish.isReady,
-    engineInitializing: stockfish.isInitializing,
-    engineError: stockfish.error,
-    
-    // Analysis state
-    gameAnalysis,
-    isAnalyzingGame,
-    analysisError,
-    analysisProgress: stockfish.analysisProgress,
-    
-    // Current position analysis
-    currentPositionEvaluation: stockfish.currentEvaluation,
-    isAnalyzingPosition: stockfish.isAnalyzing,
-    
-    // Analysis actions
-    analyzeCompleteGame,
-    analyzeCurrentPosition,
-    stopAnalysis,
-    resetGame,
-    
-    // Analysis data getters
-    getMoveAnalysis,
-    getCurrentMoveAnalysis,
-    getPositionEvaluation,
-    
-    // Computed values
-    whiteAccuracy: gameAnalysis?.whiteStats.accuracy || 0,
-    blackAccuracy: gameAnalysis?.blackStats.accuracy || 0,
-    currentMoveAnalysis: getCurrentMoveAnalysis(),
-    
-    // New function
-    loadGame: loadGameAndAnalyze,
-  };
-} 
+  stats.accuracy = totalMoves > 0 ? weightedScore / totalMoves : 0;
+
+  return stats;
+}; 
