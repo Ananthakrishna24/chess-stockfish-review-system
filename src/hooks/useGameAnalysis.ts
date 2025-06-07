@@ -141,12 +141,30 @@ export function useGameAnalysis() {
       const whiteStats = calculatePlayerStats(moveAnalyses.filter((_, i) => i % 2 === 0));
       const blackStats = calculatePlayerStats(moveAnalyses.filter((_, i) => i % 2 === 1));
 
-      // Calculate accuracies
-      const whiteEvaluations = evaluations.filter((_, i) => i % 2 === 0);
-      const blackEvaluations = evaluations.filter((_, i) => i % 2 === 1);
+      // Calculate accuracies using the evaluations from the actual move analysis
+      // Since moveAnalyses already has the correct evaluations for each move,
+      // we can extract them from there to ensure proper white/black separation
+      const whiteEvaluations: EngineEvaluation[] = [];
+      const blackEvaluations: EngineEvaluation[] = [];
+      
+      moveAnalyses.forEach((moveAnalysis, index) => {
+        const isWhiteMove = index % 2 === 0;
+        if (isWhiteMove) {
+          whiteEvaluations.push(moveAnalysis.evaluation);
+        } else {
+          blackEvaluations.push(moveAnalysis.evaluation);
+        }
+      });
       
       whiteStats.accuracy = stockfish.calculateAccuracy(whiteEvaluations);
       blackStats.accuracy = stockfish.calculateAccuracy(blackEvaluations);
+
+      // Debug logging
+      console.log('White move count:', whiteEvaluations.length);
+      console.log('Black move count:', blackEvaluations.length);
+      console.log('Total moves:', moveAnalyses.length);
+      console.log('White stats:', whiteStats);
+      console.log('Black stats:', blackStats);
 
       // Detect critical moments and analyze game phases
       const criticalMoments = stockfish.engine?.detectCriticalMoments(evaluations) || [];

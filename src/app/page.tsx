@@ -16,7 +16,7 @@ import { Progress } from '@/components/ui/Progress';
 import { Textarea } from '@/components/ui/Input';
 import { useGameAnalysis } from '@/hooks/useGameAnalysis';
 import { convertScoreToString, getScoreColor } from '@/utils/stockfish';
-import { Play, Pause, RotateCcw, BarChart3, Star, ThumbsUp, X, AlertTriangle, Volume2, Search, SkipBack, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react';
+import { Play, Pause, RotateCcw, BarChart3, Star, ThumbsUp, X, AlertTriangle, SkipBack, ChevronLeft, ChevronRight, SkipForward } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/Select";
 import { cn } from '@/lib/utils';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
@@ -40,7 +40,9 @@ const AnalysisPanel = ({
   canGoForward,
   isAtStart,
   isAtEnd,
-  totalMoves
+  totalMoves,
+  flipBoard,
+  boardOrientation
 }) => {
   const dispatch = useAppDispatch();
   const { isReviewMode } = useAppSelector(state => state.reviewMode);
@@ -297,14 +299,15 @@ const AnalysisPanel = ({
               </Button>
             </>
           ) : (
-            <>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <Volume2 className="h-4 w-4" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <Search className="h-4 w-4" />
-              </Button>
-            </>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={flipBoard}
+              title={`Flip board (viewing from ${boardOrientation === 'white' ? 'black' : 'white'}'s perspective)`}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
           )}
         </div>
       </div>
@@ -435,6 +438,11 @@ export default function Home() {
   
   const [pgnInput, setPgnInput] = React.useState('');
   const [depth, setDepth] = React.useState(4); // Default depth for quick testing
+  const [boardOrientation, setBoardOrientation] = React.useState<'white' | 'black'>('white');
+
+  const flipBoard = () => {
+    setBoardOrientation(prev => prev === 'white' ? 'black' : 'white');
+  };
 
   // Keyboard event handling for review mode
   React.useEffect(() => {
@@ -490,12 +498,16 @@ export default function Home() {
     const evalHistory = gameAnalysis.evaluationHistory;
     if (!evalHistory || evalHistory.length === 0) return 0;
     
-    // For starting position (currentMoveIndex === -1), use first evaluation
+    // For starting position (currentMoveIndex === -1), the evaluation should be 0
+    // The starting position is equal for both sides
     if (currentMoveIndex < 0) {
-      return evalHistory[0]?.score || 0;
+      return 0; // Starting position should always be 0.0 (equal)
     }
     
     // For moves, use the evaluation after the move
+    // evalHistory[0] = starting position eval (should be ~0)
+    // evalHistory[1] = after first move eval
+    // evalHistory[2] = after second move eval, etc.
     const evalIndex = Math.min(currentMoveIndex + 1, evalHistory.length - 1);
     return evalHistory[evalIndex]?.score || 0;
   };
@@ -524,7 +536,7 @@ export default function Home() {
             <div className="w-[750px] h-[750px]">
               <ChessBoard
                 position={currentPosition}
-                orientation="white"
+                orientation={boardOrientation}
               />
             </div>
             <PlayerInfoBar
@@ -556,6 +568,8 @@ export default function Home() {
               isAtStart={currentMoveIndex === -1}
               isAtEnd={currentMoveIndex === gameState.moves.length - 1}
               totalMoves={gameState.moves.length}
+              flipBoard={flipBoard}
+              boardOrientation={boardOrientation}
             />
           </div>
         )}
