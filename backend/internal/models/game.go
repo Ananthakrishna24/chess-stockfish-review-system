@@ -121,26 +121,7 @@ type ParsedMove struct {
 	IsWhite    bool   `json:"isWhite"`
 }
 
-// MoveClassification - Enumeration of move types
-type MoveClassification string
-
-const (
-	Brilliant  MoveClassification = "brilliant"
-	Great      MoveClassification = "great"
-	Best       MoveClassification = "best"
-	Excellent  MoveClassification = "excellent"
-	Good       MoveClassification = "good"
-	Book       MoveClassification = "book"
-	Inaccuracy MoveClassification = "inaccuracy"
-	Mistake    MoveClassification = "mistake"
-	Blunder    MoveClassification = "blunder"
-	Miss       MoveClassification = "miss"
-)
-
-// String - Convert classification to string
-func (mc MoveClassification) String() string {
-	return string(mc)
-}
+// Note: MoveClassification is now defined in analysis.go
 
 // GamePhase - Enumeration of game phases
 type GamePhase string

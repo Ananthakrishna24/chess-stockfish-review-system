@@ -13,20 +13,24 @@ import (
 
 // AnalysisService orchestrates game and position analysis
 type AnalysisService struct {
-	stockfishService      *StockfishService
-	chessService          *ChessService
-	cacheService          *CacheService
-	playerService         *PlayerService
-	openingService        *OpeningService
+	stockfishService        *StockfishService
+	chessService            *ChessService
+	cacheService            *CacheService
+	playerService           *PlayerService
+	openingService          *OpeningService
 	enhancedAnalysisService *EnhancedAnalysisService
-	activeJobs            map[string]*models.AnalysisJob
-	jobsMutex             sync.RWMutex
+	enhancedEPService       *EnhancedEPService
+	activeJobs              map[string]*models.AnalysisJob
+	jobsMutex               sync.RWMutex
 }
 
 // NewAnalysisService creates a new analysis service
-func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService, player *PlayerService, opening *OpeningService) *AnalysisService {
+func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache *CacheService, player *PlayerService, opening *OpeningService, logger *logrus.Logger) *AnalysisService {
 	// Initialize enhanced analysis service
 	enhancedService := NewEnhancedAnalysisService(stockfish, chess, cache, player, opening)
+	
+	// Initialize the new Enhanced EP Service
+	enhancedEPService := NewEnhancedEPService(stockfish, chess, opening, logger)
 	
 	return &AnalysisService{
 		stockfishService:        stockfish,
@@ -35,6 +39,7 @@ func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache 
 		playerService:           player,
 		openingService:          opening,
 		enhancedAnalysisService: enhancedService,
+		enhancedEPService:       enhancedEPService,
 		activeJobs:              make(map[string]*models.AnalysisJob),
 	}
 }
@@ -95,8 +100,11 @@ func (s *AnalysisService) processGameAnalysis(job *models.AnalysisJob) {
 	var response *models.GameAnalysisResponse
 	var err error
 	
-	// Use Enhanced EP-based analysis if player ratings are provided or specifically requested
-	if (job.Options.PlayerRatings.White > 0 || job.Options.PlayerRatings.Black > 0) && s.enhancedAnalysisService != nil {
+	// Prioritize the new Enhanced EP Service for more accurate analysis
+	if (job.Options.PlayerRatings.White > 0 || job.Options.PlayerRatings.Black > 0) && s.enhancedEPService != nil {
+		logrus.Infof("Using New Enhanced EP Service for game %s", job.ID)
+		response, err = s.processEnhancedEPAnalysis(job)
+	} else if s.enhancedAnalysisService != nil {
 		logrus.Infof("Using Enhanced EP-based analysis for game %s", job.ID)
 		response, err = s.enhancedAnalysisService.AnalyzeGameWithEP(job.PGN, job.Options, func(current, total int) {
 			job.UpdateProgress(current, total)
@@ -157,6 +165,160 @@ func (s *AnalysisService) processStandardAnalysis(job *models.AnalysisJob) (*mod
 	}
 	
 	return response, nil
+}
+
+// processEnhancedEPAnalysis performs analysis using the new Enhanced EP Service
+func (s *AnalysisService) processEnhancedEPAnalysis(job *models.AnalysisJob) (*models.GameAnalysisResponse, error) {
+	startTime := time.Now()
+	
+	// Parse PGN
+	parsedGame, err := s.chessService.ParsePGN(job.PGN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PGN: %v", err)
+	}
+	
+	job.UpdateProgress(0, parsedGame.TotalMoves)
+	
+	// Initialize game for replay
+	game := chess.NewGame()
+	var moveAnalyses []models.MoveAnalysis
+	
+	// Get the actual chess moves from the parsed game
+	chessGame, ok := parsedGame.Game.(*chess.Game)
+	if !ok {
+		return nil, fmt.Errorf("invalid game type")
+	}
+	
+	chessMoves := chessGame.Moves()
+	
+	// Analyze each move using the Enhanced EP Service
+	for i, move := range chessMoves {
+		// Determine player rating
+		isWhiteToMove := game.Position().Turn() == chess.White
+		playerRating := job.Options.PlayerRatings.White
+		if !isWhiteToMove {
+			playerRating = job.Options.PlayerRatings.Black
+		}
+		
+		// Get FEN before move
+		beforeFEN := game.Position().String()
+		
+		// Make the move
+		if err := game.Move(move); err != nil {
+			logrus.Warnf("Failed to make move %d: %v", i+1, err)
+			continue
+		}
+		
+		// Get FEN after move
+		afterFEN := game.Position().String()
+		
+		// Analyze the move with Enhanced EP Service
+		moveAnalysis, err := s.enhancedEPService.AnalyzeMoveComplete(
+			beforeFEN, afterFEN, move, playerRating, i+1)
+		if err != nil {
+			logrus.Warnf("Failed to analyze move %d: %v", i+1, err)
+			// Create basic analysis as fallback
+			moveAnalysis = &models.MoveAnalysis{
+				MoveNumber:     i + 1,
+				Move:           move.String(),
+				SAN:            move.String(),
+				FEN:            afterFEN,
+				Classification: "unknown",
+				MoveAccuracy:   50.0, // Default accuracy
+			}
+		}
+		
+		moveAnalyses = append(moveAnalyses, *moveAnalysis)
+		
+		// Update progress
+		job.UpdateProgress(i+1, parsedGame.TotalMoves)
+	}
+	
+	// Calculate player statistics
+	whiteStats, blackStats := s.calculatePlayerStats(moveAnalyses)
+	
+	// Create game analysis
+	analysis := models.GameAnalysis{
+		Moves:      moveAnalyses,
+		WhiteStats: whiteStats,
+		BlackStats: blackStats,
+		// Other fields would be populated by additional analysis
+	}
+	
+	// Create response
+	response := &models.GameAnalysisResponse{
+		GameID:         job.ID,
+		GameInfo:       parsedGame.GameInfo,
+		Analysis:       analysis,
+		ProcessingTime: time.Since(startTime).Seconds(),
+		Timestamp:      time.Now(),
+	}
+	
+	return response, nil
+}
+
+// calculatePlayerStats calculates statistics for both players
+func (s *AnalysisService) calculatePlayerStats(moves []models.MoveAnalysis) (models.PlayerStatistics, models.PlayerStatistics) {
+	var whiteStats, blackStats models.PlayerStatistics
+	var whiteAccuracies, blackAccuracies []float64
+	
+	for i, move := range moves {
+		isWhiteMove := (i % 2) == 0
+		
+		if isWhiteMove {
+			whiteAccuracies = append(whiteAccuracies, move.MoveAccuracy)
+			s.updateMoveCounts(&whiteStats.MoveCounts, move.Classification)
+		} else {
+			blackAccuracies = append(blackAccuracies, move.MoveAccuracy)
+			s.updateMoveCounts(&blackStats.MoveCounts, move.Classification)
+		}
+	}
+	
+	// Calculate average accuracies
+	whiteStats.Accuracy = s.calculateAverageAccuracy(whiteAccuracies)
+	blackStats.Accuracy = s.calculateAverageAccuracy(blackAccuracies)
+	
+	return whiteStats, blackStats
+}
+
+// updateMoveCounts updates move count statistics
+func (s *AnalysisService) updateMoveCounts(counts *models.MoveCounts, classification string) {
+	switch classification {
+	case "brilliant":
+		counts.Brilliant++
+	case "great":
+		counts.Great++
+	case "best":
+		counts.Best++
+	case "excellent":
+		counts.Excellent++
+	case "good":
+		counts.Good++
+	case "book":
+		counts.Book++
+	case "inaccuracy":
+		counts.Inaccuracy++
+	case "mistake":
+		counts.Mistake++
+	case "miss":
+		counts.Miss++
+	case "blunder":
+		counts.Blunder++
+	}
+}
+
+// calculateAverageAccuracy calculates the average accuracy from a slice of accuracies
+func (s *AnalysisService) calculateAverageAccuracy(accuracies []float64) float64 {
+	if len(accuracies) == 0 {
+		return 0.0
+	}
+	
+	sum := 0.0
+	for _, acc := range accuracies {
+		sum += acc
+	}
+	
+	return sum / float64(len(accuracies))
 }
 
 // GetAnalysisProgress returns the progress of an analysis job
@@ -421,6 +583,35 @@ func (s *AnalysisService) processEnhancedGameAnalysis(job *models.AnalysisJob) {
 // GetEnhancedAnalysisService returns the enhanced analysis service for direct access
 func (s *AnalysisService) GetEnhancedAnalysisService() *EnhancedAnalysisService {
 	return s.enhancedAnalysisService
+}
+
+// GetEnhancedEPService returns the Enhanced EP Service
+func (s *AnalysisService) GetEnhancedEPService() *EnhancedEPService {
+	return s.enhancedEPService
+}
+
+// RunCalibration runs calibration on a PGN file using the Enhanced EP Service
+func (s *AnalysisService) RunCalibration(pgnPath string) error {
+	if s.enhancedEPService == nil {
+		return fmt.Errorf("Enhanced EP Service not available")
+	}
+	return s.enhancedEPService.RunCalibrationFromPGN(pgnPath)
+}
+
+// GetEPThresholds returns the current EP thresholds for all rating buckets
+func (s *AnalysisService) GetEPThresholds() map[models.RatingBucket]models.EPThresholds {
+	if s.enhancedEPService == nil {
+		return nil
+	}
+	return s.enhancedEPService.GetThresholds()
+}
+
+// GetEPThresholdsForRating returns EP thresholds for a specific rating
+func (s *AnalysisService) GetEPThresholdsForRating(rating int) models.EPThresholds {
+	if s.enhancedEPService == nil {
+		return models.EPThresholds{}
+	}
+	return s.enhancedEPService.GetThresholdsForRating(rating)
 }
 
 // AnalyzePositionWithEP analyzes a position using Expected Points

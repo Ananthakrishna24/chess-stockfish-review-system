@@ -2,54 +2,313 @@ package services
 
 import (
 	"chess-backend/internal/models"
-	"math"
 	"strings"
 
 	"github.com/notnil/chess"
 )
 
-// MoveCategorizer implements sophisticated move categorization based on Expected Points
+// MoveCategorizer implements Chess.com's move categorization algorithm
 type MoveCategorizer struct {
-	expectedPointsService *ExpectedPointsService
+	expectedPointsService *ImprovedExpectedPointsService
 	chessService          *ChessService
 	openingService        *OpeningService
 }
 
 // NewMoveCategorizer creates a new move categorization service
 func NewMoveCategorizer(eps *ExpectedPointsService, chess *ChessService, opening *OpeningService) *MoveCategorizer {
+	// Use the improved expected points service instead
+	improvedEPS := NewImprovedExpectedPointsService()
 	return &MoveCategorizer{
-		expectedPointsService: eps,
+		expectedPointsService: improvedEPS,
 		chessService:          chess,
 		openingService:        opening,
 	}
 }
 
-// CategorizeMoveAdvanced categorizes a move using the sophisticated EP-based algorithm
-func (mc *MoveCategorizer) CategorizeMoveAdvanced(moveData MoveCategoryData) models.MoveClassification {
-	// Priority order as per algorithm specification
-	
-	// 1. Check for Book Move first (first ~10-15 moves from opening database)
-	if mc.isBookMove(moveData) {
+// ChessComMoveClassifier implements Chess.com's exact move classification algorithm
+type ChessComMoveClassifier struct {
+	expectedPointsService *ImprovedExpectedPointsService
+}
+
+// NewChessComMoveClassifier creates a new Chess.com-style move classifier
+func NewChessComMoveClassifier(eps *ExpectedPointsService) *ChessComMoveClassifier {
+	// Use the improved expected points service instead
+	improvedEPS := NewImprovedExpectedPointsService()
+	return &ChessComMoveClassifier{
+		expectedPointsService: improvedEPS,
+	}
+}
+
+// ClassifyMove implements Chess.com's move classification algorithm exactly
+func (c *ChessComMoveClassifier) ClassifyMove(data MoveCategoryData) models.MoveClassification {
+	// Step 1: Check for Book moves first (opening theory)
+	if c.isBookMove(data) {
 		return models.Book
 	}
 	
-	// 2. Check for Brilliant Move (!!)
-	if mc.isBrilliantMove(moveData) {
+	// Step 2: Calculate expected points loss using Chess.com's method
+	epLoss := c.calculateExpectedPointsLoss(data)
+	
+	// Step 3: Check for special moves (Brilliant) before thresholds
+	if c.isBrilliantMove(data, epLoss) {
 		return models.Brilliant
 	}
 	
-	// 3. Check for Great Move (!)
-	if mc.isGreatMove(moveData) {
-		return models.Great
+	// Step 4: Apply Chess.com's exact thresholds for classification
+	return c.classifyByExpectedPointsLoss(epLoss, data.PlayerRating)
+}
+
+// calculateExpectedPointsLoss calculates EP loss using Chess.com's method
+func (c *ChessComMoveClassifier) calculateExpectedPointsLoss(data MoveCategoryData) float64 {
+	if data.BeforeEvaluation == nil || data.AfterEvaluation == nil {
+		return 0.0
 	}
 	
-	// 4. Check for Best Move
-	if mc.isBestMove(moveData) {
-		return models.Best
+	// Get player rating (default to 1500 if not provided)
+	playerRating := data.PlayerRating
+	if playerRating == 0 {
+		playerRating = 1500
 	}
 	
-	// 5-8. Classify based on EP loss thresholds
-	return mc.classifyByAccuracy(moveData.EPLoss)
+	// Normalize evaluations for the current player
+	beforeEval := c.expectedPointsService.NormalizeEvaluationForPlayer(
+		data.BeforeEvaluation.Score, data.IsWhiteToMove)
+	afterEval := c.expectedPointsService.NormalizeEvaluationForPlayer(
+		data.AfterEvaluation.Score, data.IsWhiteToMove)
+	
+	// Convert to expected points (win probability 0.00-1.00)
+	epBefore := c.expectedPointsService.CalculateExpectedPoints(beforeEval, playerRating)
+	epAfter := c.expectedPointsService.CalculateExpectedPoints(afterEval, playerRating)
+	
+	// EP loss = reduction in win probability
+	epLoss := epBefore - epAfter
+	
+	// Ensure non-negative (we're only interested in losses)
+	if epLoss < 0 {
+		epLoss = 0
+	}
+	
+	return epLoss
+}
+
+// classifyByExpectedPointsLoss applies Chess.com's exact thresholds
+func (c *ChessComMoveClassifier) classifyByExpectedPointsLoss(epLoss float64, playerRating int) models.MoveClassification {
+	// Chess.com's exact thresholds (rating-independent for now):
+	// Best/Excellent: ≤0.02
+	// Good: 0.02–0.05  
+	// Inaccuracy: 0.05–0.10
+	// Mistake: 0.10–0.20
+	// Blunder: >0.20
+	
+	// Apply rating-based scaling if needed
+	thresholds := c.getChessComThresholds(playerRating)
+	
+	switch {
+	case epLoss == 0.0:
+		return models.Best // No EP loss = engine's top move
+	case epLoss <= thresholds.Excellent:
+		return models.Excellent // Tiny losses up to 0.02
+	case epLoss <= thresholds.Good:
+		return models.Good // 0.02–0.05 lost
+	case epLoss <= thresholds.Inaccuracy:
+		return models.Inaccuracy // 0.05–0.10 lost
+	case epLoss <= thresholds.Mistake:
+		return models.Mistake // 0.10–0.20 lost
+	default:
+		return models.Blunder // >0.20 lost
+	}
+}
+
+// ChessComThresholds represents Chess.com's classification thresholds
+type ChessComThresholds struct {
+	Excellent   float64
+	Good        float64
+	Inaccuracy  float64
+	Mistake     float64
+	Blunder     float64
+}
+
+// getChessComThresholds returns Chess.com's exact thresholds
+func (c *ChessComMoveClassifier) getChessComThresholds(playerRating int) ChessComThresholds {
+	// Chess.com's published thresholds
+	base := ChessComThresholds{
+		Excellent:  0.02,  // ≤0.02 (tiny losses)
+		Good:       0.05,  // 0.02–0.05 lost
+		Inaccuracy: 0.10,  // 0.05–0.10 lost
+		Mistake:    0.20,  // 0.10–0.20 lost
+		Blunder:    1.00,  // >0.20 lost (effectively infinite)
+	}
+	
+	// Chess.com scales thresholds by rating
+	// Higher rated players have stricter thresholds
+	ratingFactor := c.getRatingScalingFactor(playerRating)
+	
+	return ChessComThresholds{
+		Excellent:  base.Excellent * ratingFactor,
+		Good:       base.Good * ratingFactor,
+		Inaccuracy: base.Inaccuracy * ratingFactor,
+		Mistake:    base.Mistake * ratingFactor,
+		Blunder:    base.Blunder, // Blunder threshold doesn't scale
+	}
+}
+
+// getRatingScalingFactor scales thresholds based on player rating
+func (c *ChessComMoveClassifier) getRatingScalingFactor(rating int) float64 {
+	// Higher rated players have stricter standards
+	// Rating 1200 = 1.0 (baseline)
+	// Rating 2400 = 0.8 (20% stricter)
+	// Rating 800 = 1.2 (20% more lenient)
+	
+	baseFactor := 1.0
+	ratingDiff := float64(rating - 1200)
+	scalingRate := -0.0001 // -0.01% per rating point
+	
+	factor := baseFactor + (ratingDiff * scalingRate)
+	
+	// Clamp between 0.6 and 1.4
+	if factor < 0.6 {
+		factor = 0.6
+	}
+	if factor > 1.4 {
+		factor = 1.4
+	}
+	
+	return factor
+}
+
+// isBookMove checks if the move is from opening theory
+func (c *ChessComMoveClassifier) isBookMove(data MoveCategoryData) bool {
+	// Book moves are treated specially in opening theory
+	// Chess.com marks well-known opening moves as Book
+	
+	// Must be in opening phase (first 12-15 moves typically)
+	if data.MoveNumber > 15 {
+		return false
+	}
+	
+	// If we have ECO classification, likely book move
+	if data.ECO != "" && data.MoveNumber <= 12 {
+		return true
+	}
+	
+	// If opening service is available, check against database
+	if c.expectedPointsService != nil && data.OpeningName != "" && data.MoveNumber <= 10 {
+		return true
+	}
+	
+	// Conservative fallback: very early moves with minimal EP loss
+	if data.MoveNumber <= 6 {
+		epLoss := c.calculateExpectedPointsLoss(data)
+		return epLoss <= 0.01 // Very small tolerance for book moves
+	}
+	
+	return false
+}
+
+// isBrilliantMove implements Chess.com's brilliant move detection
+func (c *ChessComMoveClassifier) isBrilliantMove(data MoveCategoryData, epLoss float64) bool {
+	// Chess.com's criteria for Brilliant moves:
+	// 1. Must be a good piece sacrifice
+	// 2. Must be among the engine's best moves (minimal EP loss)
+	// 3. Should not be in a bad position after the move
+	// 4. Should not already be completely winning
+	
+	// Must have very low EP loss (engine agrees it's best or nearly best)
+	if epLoss > 0.02 {
+		return false
+	}
+	
+	// Must involve a piece sacrifice
+	if !c.involvesPieceSacrifice(data) {
+		return false
+	}
+	
+	// Position shouldn't be completely winning already
+	if c.isPositionAlreadyWinning(data.BeforeEvaluation, data.IsWhiteToMove) {
+		return false
+	}
+	
+	// Position shouldn't be bad after the move
+	if c.isPositionBad(data.AfterEvaluation, data.IsWhiteToMove) {
+		return false
+	}
+	
+	return true
+}
+
+// involvesPieceSacrifice checks if the move involves a piece sacrifice
+func (c *ChessComMoveClassifier) involvesPieceSacrifice(data MoveCategoryData) bool {
+	// Calculate material change
+	materialBefore := data.MaterialBefore.Total
+	materialAfter := data.MaterialAfter.Total
+	
+	// A piece sacrifice means losing significant material (not just trading)
+	// Chess.com is "more generous in defining a piece sacrifice" for lower rated players
+	
+	materialLoss := materialBefore - materialAfter
+	
+	// Rating-based sacrifice threshold
+	sacrificeThreshold := c.getSacrificeThreshold(data.PlayerRating)
+	
+	return materialLoss >= sacrificeThreshold
+}
+
+// getSacrificeThreshold returns the material loss threshold for sacrifice detection
+func (c *ChessComMoveClassifier) getSacrificeThreshold(rating int) int {
+	// Lower rated players: more generous (250 centipawns = 2.5 pawns)
+	// Higher rated players: stricter (350 centipawns = 3.5 pawns)
+	
+	baseThreshold := 300 // 3 pawns
+	
+	if rating < 1200 {
+		return 250 // More generous for beginners
+	} else if rating > 2000 {
+		return 350 // Stricter for masters
+	}
+	
+	return baseThreshold
+}
+
+// isPositionAlreadyWinning checks if position was already overwhelmingly winning
+func (c *ChessComMoveClassifier) isPositionAlreadyWinning(eval *models.EngineEvaluation, isWhiteToMove bool) bool {
+	if eval == nil {
+		return false
+	}
+	
+	// Check for mate scores
+	if eval.Mate != nil {
+		return true
+	}
+	
+	// Normalize evaluation for current player
+	playerEval := eval.Score
+	if !isWhiteToMove {
+		playerEval = -playerEval
+	}
+	
+	// Position is "completely winning" if advantage > +500 centipawns (roughly 5 pawns)
+	return playerEval > 500
+}
+
+// isPositionBad checks if position is bad after the move
+func (c *ChessComMoveClassifier) isPositionBad(eval *models.EngineEvaluation, isWhiteToMove bool) bool {
+	if eval == nil {
+		return false
+	}
+	
+	// Check for being mated
+	if eval.Mate != nil && *eval.Mate < 0 {
+		return true
+	}
+	
+	// Normalize evaluation for current player
+	playerEval := eval.Score
+	if !isWhiteToMove {
+		playerEval = -playerEval
+	}
+	
+	// Position is "bad" if disadvantage > -200 centipawns (roughly 2 pawns)
+	return playerEval < -200
 }
 
 // MoveCategoryData contains all data needed for move categorization
@@ -71,133 +330,105 @@ type MoveCategoryData struct {
 	OpeningName       string
 	ECO               string
 	IsPositionWinning bool // Whether position was already overwhelmingly winning
+	PlayerRating      int  // Player's rating for dynamic threshold calculation
+	IsBestMove        bool // Whether this move matches the engine's best move
+	IsSacrifice       bool // Whether this move involves a material sacrifice
 }
+
+// CategorizeMoveAdvanced categorizes a move using Chess.com's algorithm
+func (mc *MoveCategorizer) CategorizeMoveAdvanced(moveData MoveCategoryData) models.MoveClassification {
+	classifier := &ChessComMoveClassifier{expectedPointsService: mc.expectedPointsService}
+	return classifier.ClassifyMove(moveData)
+}
+
+// Legacy methods for backward compatibility
 
 // isBookMove checks if the move is from opening theory
 func (mc *MoveCategorizer) isBookMove(data MoveCategoryData) bool {
-	// Check if we're in the opening phase (first 10-15 moves)
-	if data.MoveNumber > 15 {
-		return false
-	}
-	
-	// Use opening service to check if this is a known theoretical move
-	if mc.openingService != nil {
-		// This would query the opening database
-		// For now, we'll use a simple heuristic based on ECO codes and common openings
-		return data.ECO != "" && data.MoveNumber <= 12
-	}
-	
-	// Fallback: consider first 8 moves as potentially book moves if they're good
-	return data.MoveNumber <= 8 && data.EPLoss <= 0.03
+	classifier := &ChessComMoveClassifier{expectedPointsService: mc.expectedPointsService}
+	return classifier.isBookMove(data)
 }
 
 // isBrilliantMove checks for brilliant moves (!!)
 func (mc *MoveCategorizer) isBrilliantMove(data MoveCategoryData) bool {
-	// Brilliant move criteria:
-	// 1. Very low EP loss (objectively strong)
-	// 2. Involves a sound piece sacrifice
-	// 3. Position wasn't already overwhelmingly winning
-	
-	// Must be a very good move first
-	if data.EPLoss > 0.005 {
-		return false
-	}
-	
-	// Position shouldn't be already winning by more than 300 centipawns
-	if data.IsPositionWinning {
-		return false
-	}
-	
-	// Check for piece sacrifice
-	if !mc.involvesSacrifice(data.MaterialBefore, data.MaterialAfter) {
-		return false
-	}
-	
-	// The sacrifice must be sound (low EP loss proves it's objectively good)
-	// Additional check: the move should be difficult to find (not the obvious best move in a simple position)
-	return mc.isDifficultMove(data)
+	classifier := &ChessComMoveClassifier{expectedPointsService: mc.expectedPointsService}
+	epLoss := classifier.calculateExpectedPointsLoss(data)
+	return classifier.isBrilliantMove(data, epLoss)
 }
 
 // isGreatMove checks for great moves (!)
 func (mc *MoveCategorizer) isGreatMove(data MoveCategoryData) bool {
-	// Great move: the ONLY move that doesn't significantly worsen the position
-	// This requires analyzing alternative moves
+	// Great moves are "critical to the outcome" - turning losing into draw/win
+	// This requires more complex analysis than simple EP loss
+	// For now, we'll use a simplified implementation
 	
-	if data.EPLoss > 0.01 {
+	epLoss := mc.expectedPointsService.CalculateExpectedPointsLoss(
+		data.BeforeEvaluation.Score, data.AfterEvaluation.Score, data.PlayerRating)
+	
+	// Must be a very good move
+	if epLoss > 0.01 {
 		return false
 	}
 	
-	// Count how many alternative moves would have been much worse
-	betterAlternatives := 0
-	for _, alt := range data.AlternativeMoves {
-		// Calculate EP loss for this alternative
-		altEPLoss := mc.calculateAlternativeEPLoss(alt, data)
-		if altEPLoss < data.EPLoss+0.05 { // Allow small margin
-			betterAlternatives++
-		}
+	// Check if this move significantly improved a difficult position
+	return mc.isGameChangingMove(data)
+}
+
+// isGameChangingMove checks if the move was critical to the game outcome
+func (mc *MoveCategorizer) isGameChangingMove(data MoveCategoryData) bool {
+	// Simplified heuristic: move that improves a losing position significantly
+	if data.BeforeEvaluation == nil || data.AfterEvaluation == nil {
+		return false
 	}
 	
-	// If there are very few good alternatives, this might be a great move
-	return betterAlternatives <= 1 && len(data.AlternativeMoves) > 3
+	beforeEval := data.BeforeEvaluation.Score
+	afterEval := data.AfterEvaluation.Score
+	
+	// Normalize for current player
+	if !data.IsWhiteToMove {
+		beforeEval = -beforeEval
+		afterEval = -afterEval
+	}
+	
+	// Was losing before (< -100) but improved significantly
+	wasLosing := beforeEval < -100
+	improvement := afterEval - beforeEval
+	
+	return wasLosing && improvement > 200 // Improved by 2+ pawns
 }
 
 // isBestMove checks if the played move matches the engine's best move
 func (mc *MoveCategorizer) isBestMove(data MoveCategoryData) bool {
-	// Direct comparison with engine's recommended move
 	return strings.EqualFold(data.UCI, data.BestMove) || strings.EqualFold(data.Move, data.BestMove)
 }
 
 // classifyByAccuracy classifies moves based on EP loss thresholds
 func (mc *MoveCategorizer) classifyByAccuracy(epLoss float64) models.MoveClassification {
-	thresholds := mc.expectedPointsService.GetAccuracyThresholds()
-	
-	switch {
-	case epLoss <= thresholds["excellent"]:
-		return models.Excellent
-	case epLoss <= thresholds["good"]:
-		return models.Good
-	case epLoss <= thresholds["inaccuracy"]:
-		return models.Inaccuracy
-	case epLoss <= thresholds["mistake"]:
-		return models.Mistake
-	default:
-		return models.Blunder
-	}
+	classifier := &ChessComMoveClassifier{expectedPointsService: mc.expectedPointsService}
+	return classifier.classifyByExpectedPointsLoss(epLoss, 1500) // Default rating
 }
 
 // involvesSacrifice checks if the move involves a piece sacrifice
 func (mc *MoveCategorizer) involvesSacrifice(before, after models.MaterialValue) bool {
-	// Calculate material change
 	materialChange := before.Total - after.Total
-	
-	// A sacrifice is when we lose significant material (more than a pawn)
-	// But we need to account for captures too
 	return materialChange >= 300 // About 3 pawns worth of material
 }
 
 // isDifficultMove checks if a move is non-obvious or difficult to find
 func (mc *MoveCategorizer) isDifficultMove(data MoveCategoryData) bool {
-	// Heuristics for difficulty:
-	// 1. Involves a sacrifice
-	// 2. Not the first choice in simple positions
-	// 3. Creates complex tactical ideas
-	
-	// For now, we'll use a simple heuristic
-	// In the future, this could analyze move complexity, tactical patterns, etc.
 	return mc.involvesSacrifice(data.MaterialBefore, data.MaterialAfter)
 }
 
 // calculateAlternativeEPLoss calculates EP loss for an alternative move
 func (mc *MoveCategorizer) calculateAlternativeEPLoss(alt models.AlternativeMove, data MoveCategoryData) float64 {
-	// This would require evaluating what the position would be after the alternative move
-	// For now, we'll use the evaluation difference as a proxy
-	
 	if data.BeforeEvaluation == nil {
 		return 0.0
 	}
 	
-	// Normalize the evaluation for the current player
-	playerRating := 1500 // Default rating if not available
+	playerRating := data.PlayerRating
+	if playerRating == 0 {
+		playerRating = 1500
+	}
 	
 	beforeEval := mc.expectedPointsService.NormalizeEvaluationForPlayer(
 		data.BeforeEvaluation.Score, data.IsWhiteToMove)
@@ -215,100 +446,96 @@ func (mc *MoveCategorizer) CalculateMaterialValue(position *chess.Position, colo
 	
 	material := models.MaterialValue{}
 	
-	// Material values in centipawns
-	values := map[chess.PieceType]int{
-		chess.Pawn:   100,
-		chess.Knight: 320,
-		chess.Bishop: 330,
-		chess.Rook:   500,
-		chess.Queen:  900,
-		chess.King:   0, // King has no material value
-	}
-	
 	// Count pieces for the specified color
-	for square := chess.A1; square <= chess.H8; square++ {
-		piece := position.Board().Piece(square)
-		if piece != chess.NoPiece && piece.Color() == color {
-			switch piece.Type() {
-			case chess.Pawn:
-				material.Pawns++
-			case chess.Knight:
-				material.Knights++
-			case chess.Bishop:
-				material.Bishops++
-			case chess.Rook:
-				material.Rooks++
-			case chess.Queen:
-				material.Queens++
-			}
-			material.Total += values[piece.Type()]
+	board := position.Board()
+	for sq := chess.A1; sq <= chess.H8; sq++ {
+		piece := board.Piece(sq)
+		if piece.Color() != color {
+			continue
+		}
+		
+		switch piece.Type() {
+		case chess.Pawn:
+			material.Pawns++
+		case chess.Knight:
+			material.Knights++
+		case chess.Bishop:
+			material.Bishops++
+		case chess.Rook:
+			material.Rooks++
+		case chess.Queen:
+			material.Queens++
 		}
 	}
+	
+	// Calculate total centipawn value
+	material.Total = material.Pawns*100 + material.Knights*320 + material.Bishops*330 + 
+					 material.Rooks*500 + material.Queens*900
 	
 	return material
 }
 
-// IsPositionWinning determines if a position is already overwhelmingly winning
+// IsPositionWinning checks if a position is overwhelmingly winning
 func (mc *MoveCategorizer) IsPositionWinning(evaluation *models.EngineEvaluation, isWhiteToMove bool) bool {
 	if evaluation == nil {
 		return false
 	}
 	
-	// Handle mate scores
-	if evaluation.Mate != nil {
-		mateScore := *evaluation.Mate
-		if isWhiteToMove {
-			return mateScore > 0 // White is winning
-		} else {
-			return mateScore < 0 // Black is winning
-		}
+	// Check for mate
+	if evaluation.Mate != nil && *evaluation.Mate > 0 {
+		return true
 	}
 	
-	// Consider position winning if advantage is > 300 centipawns
-	winningThreshold := 300
-	
-	if isWhiteToMove {
-		return evaluation.Score > winningThreshold
-	} else {
-		return evaluation.Score < -winningThreshold
+	// Normalize evaluation for current player
+	playerEval := evaluation.Score
+	if !isWhiteToMove {
+		playerEval = -playerEval
 	}
+	
+	// Position is winning if advantage > +400 centipawns (roughly 4 pawns)
+	return playerEval > 400
 }
 
 // CalculateAccuracyScores calculates overall accuracy for both players
 func (mc *MoveCategorizer) CalculateAccuracyScores(moves []models.MoveAnalysis, excludeBookMoves bool) (whiteAccuracy, blackAccuracy float64) {
-	var whiteTotal, blackTotal float64
-	var whiteCount, blackCount int
+	var whiteMoves, blackMoves []models.MoveAnalysis
 	
+	// Separate moves by color
 	for _, move := range moves {
-		// Skip book moves if requested
 		if excludeBookMoves && move.IsBookMove {
 			continue
 		}
 		
-		// Determine if this is a white or black move
-		isWhiteMove := move.MoveNumber%2 == 1
-		
-		if isWhiteMove {
-			whiteTotal += move.MoveAccuracy
-			whiteCount++
-		} else {
-			blackTotal += move.MoveAccuracy
-			blackCount++
+		if move.MoveNumber%2 == 1 { // Odd move numbers are white
+			whiteMoves = append(whiteMoves, move)
+		} else { // Even move numbers are black
+			blackMoves = append(blackMoves, move)
 		}
 	}
 	
-	// Calculate averages
-	if whiteCount > 0 {
-		whiteAccuracy = whiteTotal / float64(whiteCount)
-	}
-	if blackCount > 0 {
-		blackAccuracy = blackTotal / float64(blackCount)
-	}
+	// Calculate accuracy for each player
+	whiteAccuracy = mc.calculatePlayerAccuracy(whiteMoves)
+	blackAccuracy = mc.calculatePlayerAccuracy(blackMoves)
 	
 	return whiteAccuracy, blackAccuracy
 }
 
-// EnhancedMoveClassification provides additional context for move classifications
+// calculatePlayerAccuracy calculates accuracy for a single player's moves
+func (mc *MoveCategorizer) calculatePlayerAccuracy(moves []models.MoveAnalysis) float64 {
+	if len(moves) == 0 {
+		return 100.0
+	}
+	
+	totalAccuracy := 0.0
+	for _, move := range moves {
+		totalAccuracy += move.MoveAccuracy
+	}
+	
+	return totalAccuracy / float64(len(moves))
+}
+
+// Enhanced move classification with context
+
 type EnhancedMoveClassification struct {
 	Classification models.MoveClassification `json:"classification"`
 	Reason         string                    `json:"reason"`
@@ -316,7 +543,6 @@ type EnhancedMoveClassification struct {
 	Context        ClassificationContext     `json:"context"`
 }
 
-// ClassificationContext provides context about why a move was classified a certain way
 type ClassificationContext struct {
 	IsSacrifice       bool    `json:"isSacrifice"`
 	MaterialChange    int     `json:"materialChange"`
@@ -325,15 +551,18 @@ type ClassificationContext struct {
 	AlternativeCount  int     `json:"alternativeCount"`
 }
 
-// ClassifyMoveWithContext provides detailed classification with reasoning
+// ClassifyMoveWithContext provides enhanced classification with reasoning
 func (mc *MoveCategorizer) ClassifyMoveWithContext(data MoveCategoryData) EnhancedMoveClassification {
-	classification := mc.CategorizeMoveAdvanced(data)
+	classifier := &ChessComMoveClassifier{expectedPointsService: mc.expectedPointsService}
+	classification := classifier.ClassifyMove(data)
 	
-	// Generate reasoning and context
+	epLoss := classifier.calculateExpectedPointsLoss(data)
+	
 	context := ClassificationContext{
-		IsSacrifice:       mc.involvesSacrifice(data.MaterialBefore, data.MaterialAfter),
+		IsSacrifice:       classifier.involvesPieceSacrifice(data),
 		MaterialChange:    data.MaterialBefore.Total - data.MaterialAfter.Total,
-		EPLoss:            data.EPLoss,
+		EPLoss:            epLoss,
+		PositionComplexity: "medium", // Could be enhanced with position analysis
 		AlternativeCount:  len(data.AlternativeMoves),
 	}
 	
@@ -348,57 +577,61 @@ func (mc *MoveCategorizer) ClassifyMoveWithContext(data MoveCategoryData) Enhanc
 	}
 }
 
-// generateClassificationReason generates human-readable reason for classification
+// generateClassificationReason provides human-readable reasoning
 func (mc *MoveCategorizer) generateClassificationReason(classification models.MoveClassification, context ClassificationContext) string {
 	switch classification {
-	case models.Brilliant:
-		if context.IsSacrifice {
-			return "Brilliant sacrificial move that objectively improves the position"
-		}
-		return "Brilliant move that finds the best continuation in a complex position"
-	case models.Great:
-		return "Great move - the only good option in a difficult position"
-	case models.Best:
-		return "Best move according to the engine"
-	case models.Excellent:
-		return "Excellent move with minimal loss of advantage"
-	case models.Good:
-		return "Good move maintaining the position"
 	case models.Book:
-		return "Theoretical opening move"
+		return "Well-known opening move from chess theory"
+	case models.Brilliant:
+		return "Excellent piece sacrifice that creates winning advantage"
+	case models.Great:
+		return "Critical move that significantly improves the position"
+	case models.Best:
+		return "Engine's top choice with no loss in winning chances"
+	case models.Excellent:
+		return "Very strong move with minimal loss in winning chances"
+	case models.Good:
+		return "Solid move with small loss in winning chances"
 	case models.Inaccuracy:
-		return "Inaccuracy that slightly worsens the position"
+		return "Slightly inaccurate move that worsens the position"
 	case models.Mistake:
-		return "Mistake that significantly worsens the position"
+		return "Significant error that gives away advantage"
 	case models.Blunder:
-		return "Blunder that severely damages the position"
+		return "Serious mistake that likely loses material or the game"
 	default:
-		return "Move analyzed"
+		return "Move classification unavailable"
 	}
 }
 
-// calculateClassificationConfidence calculates confidence in the classification
+// calculateClassificationConfidence estimates confidence in the classification
 func (mc *MoveCategorizer) calculateClassificationConfidence(classification models.MoveClassification, data MoveCategoryData) float64 {
-	// Base confidence on various factors
-	confidence := 0.8 // Base confidence
+	// Higher confidence for:
+	// - Clear book moves
+	// - Very large EP losses (clear blunders)
+	// - Brilliant moves with clear sacrifices
 	
-	// Higher confidence for clear-cut cases
-	if classification == models.Best && data.EPLoss < 0.001 {
-		confidence = 0.95
-	}
-	
-	if classification == models.Blunder && data.EPLoss > 0.5 {
-		confidence = 0.95
-	}
-	
-	// Lower confidence for borderline cases
-	thresholds := mc.expectedPointsService.GetAccuracyThresholds()
-	for _, threshold := range thresholds {
-		if math.Abs(data.EPLoss-threshold) < 0.01 {
-			confidence = 0.6 // Borderline case
-			break
+		switch classification {
+	case models.Book:
+		if data.MoveNumber <= 8 && data.ECO != "" {
+			return 0.95
 		}
+		return 0.80
+	case models.Brilliant:
+		if data.IsSacrifice && data.EPLoss < 0.01 {
+			return 0.90
+		}
+		return 0.75
+	case models.Blunder:
+		if data.EPLoss > 0.30 {
+			return 0.95
+		}
+				return 0.85
+	case models.Best:
+		if data.EPLoss == 0.0 {
+			return 0.90
+		}
+		return 0.80
+	default:
+		return 0.75 // Default confidence
 	}
-	
-	return confidence
-} 
+}

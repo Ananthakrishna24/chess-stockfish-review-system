@@ -268,10 +268,77 @@ type MaterialValue struct {
 	Total   int `json:"total"` // Total centipawn value
 }
 
-// BookMoveInfo - Information about opening book moves
+// BookMoveInfo - Book move information
 type BookMoveInfo struct {
 	IsBookMove  bool   `json:"isBookMove"`
 	OpeningName string `json:"openingName,omitempty"`
 	ECO         string `json:"eco,omitempty"`
 	Depth       int    `json:"depth"` // How deep in the opening
+}
+
+// Rating-based EP Algorithm Structures
+
+// RatingBucket represents a rating range for EP calculations
+type RatingBucket string
+
+const (
+	RatingBucket800to1200  RatingBucket = "800-1200"
+	RatingBucket1201to1600 RatingBucket = "1201-1600"
+	RatingBucket1601to2000 RatingBucket = "1601-2000"
+	RatingBucket2001Plus   RatingBucket = "2001+"
+)
+
+// EPThresholds contains percentile-based thresholds for a rating bucket
+type EPThresholds struct {
+	P1  float64 `json:"p1"`  // 1st percentile
+	P5  float64 `json:"p5"`  // 5th percentile  
+	P10 float64 `json:"p10"` // 10th percentile
+	P25 float64 `json:"p25"` // 25th percentile
+	P50 float64 `json:"p50"` // 50th percentile (median)
+	P75 float64 `json:"p75"` // 75th percentile
+	P90 float64 `json:"p90"` // 90th percentile
+}
+
+// MoveStat represents statistics for a single move used in calibration
+type MoveStat struct {
+	Rating         int     `json:"rating"`
+	EPLoss         float64 `json:"epLoss"`
+	MaterialChange int     `json:"materialChange"` // In centipawns
+	MoveUCI        string  `json:"moveUCI"`        // The actual move played in UCI notation
+	BestEngineUCI  string  `json:"bestEngineUCI"`  // Engine's best move in UCI notation
+	IsBestMove     bool    `json:"isBestMove"`     // Whether MoveUCI == BestEngineUCI
+	IsSacrifice    bool    `json:"isSacrifice"`
+	MoveNumber     int     `json:"moveNumber"`
+	GamePhase      string  `json:"gamePhase"` // opening, middlegame, endgame
+}
+
+// CalibrationData contains aggregated move statistics for threshold computation
+type CalibrationData struct {
+	TotalMoves     int                              `json:"totalMoves"`
+	GamesParsed    int                              `json:"gamesParsed"`
+	LastUpdated    time.Time                        `json:"lastUpdated"`
+	RatingBuckets  map[RatingBucket][]MoveStat      `json:"ratingBuckets"`
+	Thresholds     map[RatingBucket]EPThresholds    `json:"thresholds"`
+	Version        string                           `json:"version"`
+}
+
+// MoveClassification represents the enhanced move classification enum
+type MoveClassification string
+
+const (
+	Brilliant   MoveClassification = "brilliant"
+	Great       MoveClassification = "great"
+	Best        MoveClassification = "best"
+	Excellent   MoveClassification = "excellent"
+	Good        MoveClassification = "good"
+	Book        MoveClassification = "book"
+	Inaccuracy  MoveClassification = "inaccuracy"
+	Mistake     MoveClassification = "mistake"
+	Blunder     MoveClassification = "blunder"
+	Miss        MoveClassification = "miss"
+)
+
+// String - Convert classification to string
+func (mc MoveClassification) String() string {
+	return string(mc)
 } 
