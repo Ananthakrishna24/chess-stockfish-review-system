@@ -94,6 +94,16 @@ func main() {
 			positions.POST("/analyze", analysisHandler.AnalyzePosition)
 		}
 
+		// Evaluation endpoints - NEW: Lichess-specific evaluation features
+		evaluation := api.Group("/evaluation")
+		{
+			lichess := evaluation.Group("/lichess")
+			{
+				lichess.GET("/constants", analysisHandler.GetLichessConstants)
+				lichess.POST("/convert", analysisHandler.ConvertEvaluation)
+			}
+		}
+
 		// Engine configuration endpoints
 		engine := api.Group("/engine")
 		{

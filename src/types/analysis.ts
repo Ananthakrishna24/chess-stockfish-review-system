@@ -45,10 +45,20 @@ export interface EngineEvaluation {
   mate?: number; // Mate in X moves
 }
 
+// DisplayEvaluation - Stable evaluation for frontend display (Lichess algorithm)
+export interface DisplayEvaluation {
+  winProbability: number;     // 0.0 to 1.0 (0 = losing, 1 = winning)
+  displayScore: number;       // Capped centipawn score for display
+  evaluationBar: number;      // -1.0 to +1.0 for progress bar
+  positionAssessment: string; // "winning", "slightly_better", "equal", etc.
+  isStable: boolean;          // Whether evaluation has stabilized
+}
+
 export interface MoveAnalysis {
   move: string;
   san: string;
   evaluation: EngineEvaluation;
+  displayEvaluation?: DisplayEvaluation; // Enhanced Lichess evaluation data
   classification: MoveClassification;
   tacticalAnalysis?: TacticalAnalysis;
   alternativeMoves?: {

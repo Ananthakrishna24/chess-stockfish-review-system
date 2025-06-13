@@ -13,14 +13,15 @@ import (
 
 // AnalysisService orchestrates game and position analysis
 type AnalysisService struct {
-	stockfishService      *StockfishService
-	chessService          *ChessService
-	cacheService          *CacheService
-	playerService         *PlayerService
-	openingService        *OpeningService
-	enhancedAnalysisService *EnhancedAnalysisService
-	activeJobs            map[string]*models.AnalysisJob
-	jobsMutex             sync.RWMutex
+	stockfishService         *StockfishService
+	chessService             *ChessService
+	cacheService             *CacheService
+	playerService            *PlayerService
+	openingService           *OpeningService
+	enhancedAnalysisService  *EnhancedAnalysisService
+	lichessEvaluationService *LichessEvaluationService
+	activeJobs               map[string]*models.AnalysisJob
+	jobsMutex                sync.RWMutex
 }
 
 // NewAnalysisService creates a new analysis service
@@ -28,14 +29,18 @@ func NewAnalysisService(stockfish *StockfishService, chess *ChessService, cache 
 	// Initialize enhanced analysis service
 	enhancedService := NewEnhancedAnalysisService(stockfish, chess, cache, player, opening)
 	
+	// Initialize Lichess evaluation service
+	lichessService := NewLichessEvaluationService()
+	
 	return &AnalysisService{
-		stockfishService:        stockfish,
-		chessService:            chess,
-		cacheService:            cache,
-		playerService:           player,
-		openingService:          opening,
-		enhancedAnalysisService: enhancedService,
-		activeJobs:              make(map[string]*models.AnalysisJob),
+		stockfishService:         stockfish,
+		chessService:             chess,
+		cacheService:             cache,
+		playerService:            player,
+		openingService:           opening,
+		enhancedAnalysisService:  enhancedService,
+		lichessEvaluationService: lichessService,
+		activeJobs:               make(map[string]*models.AnalysisJob),
 	}
 }
 
@@ -236,6 +241,11 @@ func (s *AnalysisService) AnalyzePosition(request models.AnalyzePositionRequest)
 		return nil, fmt.Errorf("analysis failed: %v", err)
 	}
 	
+	// Create stable display evaluation
+	displayService := NewEvaluationDisplayService()
+	isWhiteToMove := s.chessService.IsWhiteToMove(request.FEN)
+	displayEval := displayService.NormalizeForDisplay(evaluation.Score, isWhiteToMove, nil)
+	
 	// Get position information
 	position, err := s.chessService.GetPositionFromFEN(request.FEN)
 	if err != nil {
@@ -252,6 +262,7 @@ func (s *AnalysisService) AnalyzePosition(request models.AnalyzePositionRequest)
 	response := &models.PositionAnalysisResponse{
 		FEN:              request.FEN,
 		Evaluation:       *evaluation,
+		DisplayEvaluation: displayEval,
 		AlternativeMoves: alternatives,
 		PositionInfo: models.PositionInfo{
 			Phase: phase.String(),
@@ -430,4 +441,192 @@ func (s *AnalysisService) AnalyzePositionWithEP(fen string, playerRating int, is
 	}
 	
 	return s.enhancedAnalysisService.CalculatePositionEP(fen, playerRating, isWhiteToMove)
+}
+
+// AnalyzeGameWithLichessAlgorithm performs game analysis using precise Lichess algorithms
+func (s *AnalysisService) AnalyzeGameWithLichessAlgorithm(pgn string, options models.AnalysisOptions) (*models.LichessGameAnalysis, error) {
+	// Parse the game first
+	parsedGame, err := s.chessService.ParsePGN(pgn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse PGN: %v", err)
+	}
+	
+	logrus.Infof("Starting Lichess algorithm analysis for game with %d moves", parsedGame.TotalMoves)
+	
+	// Perform standard Stockfish analysis to get raw evaluations
+	standardAnalysis, err := s.stockfishService.AnalyzeGame(parsedGame, options, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get Stockfish evaluations: %v", err)
+	}
+	
+	// Extract centipawn evaluations with proper mate score conversion and player-to-move information
+	rawEvaluations := make([]int, len(standardAnalysis.EvaluationHistory))
+	isWhiteToMove := make([]bool, len(standardAnalysis.EvaluationHistory))
+	
+	for i, eval := range standardAnalysis.EvaluationHistory {
+		// Use Lichess mate conversion for consistent evaluation processing
+		rawEvaluations[i] = s.lichessEvaluationService.ConvertEngineEvaluationToCentipawns(eval)
+		isWhiteToMove[i] = (i % 2) == 0 // White moves on even indices
+	}
+	
+	// Process with Lichess evaluation service
+	lichessDisplayEvals := s.lichessEvaluationService.ProcessEvaluationHistory(rawEvaluations, isWhiteToMove)
+	
+	// Convert display evaluations to Lichess evaluation format
+	lichessEvals := make([]*models.LichessEvaluation, len(lichessDisplayEvals))
+	for i, displayEval := range lichessDisplayEvals {
+		lichessEvals[i] = &models.LichessEvaluation{
+			RawCentipawns:      rawEvaluations[i],
+			CappedCentipawns:   displayEval.DisplayScore,
+			WinProbability:     displayEval.WinProbability,
+			WinPercentage:      displayEval.WinProbability * 100.0,
+			EvaluationBar:      displayEval.EvaluationBar,
+			PositionAssessment: displayEval.PositionAssessment,
+			IsStable:           displayEval.IsStable,
+			IsMateScore:        s.lichessEvaluationService.IsMateScore(rawEvaluations[i]),
+		}
+	}
+	
+	// Calculate accuracy history using Lichess algorithm
+	accuracyHistory := s.calculateLichessAccuracyHistory(lichessEvals)
+	
+	// Calculate game-level accuracy for both players
+	whiteAccuracy := s.lichessEvaluationService.CalculateGameAccuracy(lichessDisplayEvals, true)
+	blackAccuracy := s.lichessEvaluationService.CalculateGameAccuracy(lichessDisplayEvals, false)
+	
+	// Create enhanced analysis
+	lichessAnalysis := &models.LichessGameAnalysis{
+		GameAnalysis:             *standardAnalysis,
+		LichessEvaluationHistory: lichessEvals,
+		WhiteLichessAccuracy:     whiteAccuracy,
+		BlackLichessAccuracy:     blackAccuracy,
+		AccuracyHistory:          accuracyHistory,
+		SmoothingApplied:         true, // Lichess service applies smoothing by default
+		WindowSize:              s.calculateOptimalWindowSize(len(lichessEvals)),
+	}
+	
+	logrus.Infof("Lichess analysis completed: White %.1f%%, Black %.1f%% accuracy", 
+		whiteAccuracy, blackAccuracy)
+	
+	return lichessAnalysis, nil
+}
+
+// calculateLichessAccuracyHistory calculates move-by-move accuracy using Lichess formula
+func (s *AnalysisService) calculateLichessAccuracyHistory(evaluations []*models.LichessEvaluation) []*models.LichessAccuracy {
+	if len(evaluations) < 2 {
+		return nil
+	}
+	
+	accuracyHistory := make([]*models.LichessAccuracy, len(evaluations)-1)
+	
+	for i := 1; i < len(evaluations); i++ {
+		beforeWinProb := evaluations[i-1].WinProbability
+		afterWinProb := evaluations[i].WinProbability
+		
+		// Calculate win probability change
+		winProbChange := beforeWinProb - afterWinProb
+		
+		// Calculate accuracy using Lichess formula
+		moveAccuracy := s.lichessEvaluationService.CalculateAccuracy(beforeWinProb, afterWinProb)
+		
+		// Calculate accuracy loss (points lost due to inaccuracy)
+		accuracyLoss := 100.0 - moveAccuracy
+		
+		accuracyHistory[i-1] = &models.LichessAccuracy{
+			WinProbBefore: beforeWinProb,
+			WinProbAfter:  afterWinProb,
+			WinProbChange: winProbChange,
+			MoveAccuracy:  moveAccuracy,
+			AccuracyLoss:  accuracyLoss,
+		}
+	}
+	
+	return accuracyHistory
+}
+
+// calculateOptimalWindowSize calculates optimal smoothing window size based on game length
+func (s *AnalysisService) calculateOptimalWindowSize(gameLength int) int {
+	// Lichess formula: game_length / 10, clamped between 2-8
+	windowSize := gameLength / 10
+	if windowSize < 2 {
+		windowSize = 2
+	}
+	if windowSize > 8 {
+		windowSize = 8
+	}
+	return windowSize
+}
+
+// AnalyzePositionWithLichessAlgorithm analyzes a position using Lichess algorithms
+func (s *AnalysisService) AnalyzePositionWithLichessAlgorithm(request models.AnalyzePositionRequest) (*models.PositionAnalysisResponse, error) {
+	// Get raw Stockfish evaluation
+	evaluation, alternatives, err := s.stockfishService.AnalyzePosition(request.FEN, request.Depth, request.TimeLimit, request.MultiPV)
+	if err != nil {
+		return nil, fmt.Errorf("engine analysis failed: %v", err)
+	}
+	
+	// Convert using Lichess algorithm with proper mate score handling
+	isWhiteToMove := s.chessService.IsWhiteToMove(request.FEN)
+	lichessDisplayEval := s.lichessEvaluationService.CreateDisplayEvaluationFromEngine(
+		*evaluation, 
+		isWhiteToMove, 
+		nil, // No previous evaluation for single position
+	)
+	
+	// Get position information
+	position, err := s.chessService.GetPositionFromFEN(request.FEN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse position: %v", err)
+	}
+	
+	// Calculate additional position info
+	phase := s.chessService.GetGamePhase(position, 20)
+	whiteMaterial := s.chessService.CalculateMaterialValue(position, chess.White)
+	blackMaterial := s.chessService.CalculateMaterialValue(position, chess.Black)
+	whiteKingSafety := s.chessService.AssessKingSafety(position, chess.White)
+	blackKingSafety := s.chessService.AssessKingSafety(position, chess.Black)
+	
+	response := &models.PositionAnalysisResponse{
+		FEN:               request.FEN,
+		Evaluation:        *evaluation,
+		DisplayEvaluation: lichessDisplayEval, // Use Lichess algorithm for display
+		AlternativeMoves:  alternatives,
+		PositionInfo: models.PositionInfo{
+			Phase: phase.String(),
+			Material: models.MaterialInfo{
+				White: whiteMaterial,
+				Black: blackMaterial,
+			},
+			Safety: models.SafetyInfo{
+				WhiteKing: whiteKingSafety,
+				BlackKing: blackKingSafety,
+			},
+		},
+	}
+	
+	logrus.Debugf("Lichess position analysis: %dcp -> %.1f%% win probability", 
+		evaluation.Score, lichessDisplayEval.WinProbability*100)
+	
+	return response, nil
+}
+
+// GetLichessEvaluationService returns the Lichess evaluation service for direct access
+func (s *AnalysisService) GetLichessEvaluationService() *LichessEvaluationService {
+	return s.lichessEvaluationService
+}
+
+// ConvertEvaluationToLichessFormat converts a raw evaluation to Lichess format
+func (s *AnalysisService) ConvertEvaluationToLichessFormat(centipawns int, isWhiteToMove bool) *models.LichessEvaluation {
+	displayEval := s.lichessEvaluationService.CreateDisplayEvaluation(centipawns, isWhiteToMove, nil)
+	
+	return &models.LichessEvaluation{
+		RawCentipawns:      centipawns,
+		CappedCentipawns:   displayEval.DisplayScore,
+		WinProbability:     displayEval.WinProbability,
+		WinPercentage:      displayEval.WinProbability * 100.0,
+		EvaluationBar:      displayEval.EvaluationBar,
+		PositionAssessment: displayEval.PositionAssessment,
+		IsStable:           displayEval.IsStable,
+		IsMateScore:        s.lichessEvaluationService.IsMateScore(centipawns),
+	}
 } 

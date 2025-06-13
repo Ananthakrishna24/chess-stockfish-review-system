@@ -288,6 +288,7 @@ func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options 
 	
 	// Initialize services for enhanced analysis
 	epsService := NewExpectedPointsService()
+	displayService := NewEvaluationDisplayService()
 	
 	// Initialize analysis structure
 	analysis := &models.GameAnalysis{
@@ -301,6 +302,7 @@ func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options 
 	var whiteMoveCount, blackMoveCount int
 	
 	var currentPosition *models.ParsedMove
+	var previousDisplayEval *models.DisplayEvaluation
 	
 	logrus.Infof("Starting enhanced EP-based analysis for %d moves", len(game.Moves))
 	
@@ -369,6 +371,9 @@ func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options 
 		// G. Categorize the Move
 		classification := s.classifyMoveEnhanced(beforeEval, afterEval, move, alternatives, epLoss, options)
 		
+		// H. Create stable display evaluation
+		displayEval := displayService.NormalizeForDisplay(afterEval.Score, move.IsWhite, previousDisplayEval)
+		
 		// Create enhanced move analysis
 		moveAnalysis := models.MoveAnalysis{
 			MoveNumber:       move.MoveNumber,
@@ -376,6 +381,7 @@ func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options 
 			SAN:              move.SAN,
 			FEN:              move.FEN,
 			Evaluation:       *afterEval,
+			DisplayEvaluation: displayEval,
 			BeforeEvaluation: beforeEval,
 			Classification:   classification.String(),
 			AlternativeMoves: alternatives,
@@ -387,6 +393,9 @@ func (s *StockfishService) AnalyzeGameEnhanced(game *models.ParsedGame, options 
 				Accuracy: moveAccuracy,
 			},
 		}
+		
+		// Update for next iteration
+		previousDisplayEval = displayEval
 		
 		// Set book move flag if in opening
 		if move.MoveNumber <= 15 && classification == models.Book {

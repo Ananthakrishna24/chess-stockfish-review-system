@@ -1,9 +1,10 @@
 'use client';
 
-import { EngineEvaluation } from '@/types/analysis';
+import { EngineEvaluation, DisplayEvaluation } from '@/types/analysis';
 
 interface EvaluationChartProps {
   evaluations: EngineEvaluation[];
+  displayEvaluations?: DisplayEvaluation[]; // Enhanced Lichess evaluation data
   currentMoveIndex: number;
   criticalMoments?: number[];
   onMoveClick?: (moveIndex: number) => void;
@@ -12,6 +13,7 @@ interface EvaluationChartProps {
 
 export function EvaluationChart({
   evaluations,
+  displayEvaluations,
   currentMoveIndex,
   criticalMoments = [],
   onMoveClick,
@@ -31,35 +33,56 @@ export function EvaluationChart({
   const chartWidth = width - margin.left - margin.right;
   const chartHeight = height - margin.top - margin.bottom;
 
-  // Scale functions
+  // Use display evaluations if available (Lichess algorithm), otherwise fall back to raw evaluations
+  const useDisplayEvaluations = displayEvaluations && displayEvaluations.length === evaluations.length;
+
+  // Scale functions - Updated for Lichess algorithm
   const xScale = (index: number) => (index / Math.max(1, evaluations.length - 1)) * chartWidth;
   const yScale = (score: number) => {
-    const clampedScore = Math.max(-800, Math.min(800, score));
-    return chartHeight - ((clampedScore + 800) / 1600) * chartHeight;
+    // Use Lichess capping of ±1000 instead of ±800, and use display scores if available
+    const clampedScore = Math.max(-1000, Math.min(1000, score));
+    return chartHeight - ((clampedScore + 1000) / 2000) * chartHeight;
   };
 
   // Calculate zero line position
   const zeroY = yScale(0);
 
-  // Transform evaluation data
+  // Transform evaluation data - Use Lichess display evaluations when available
   const points = evaluations.map((evaluation, index) => {
-    const score = evaluation.mate 
-      ? (evaluation.mate > 0 ? 800 : -800)
-      : evaluation.score;
+    let score: number;
+    
+    if (useDisplayEvaluations && displayEvaluations![index]) {
+      // Use Lichess display score (already smoothed and capped)
+      score = displayEvaluations![index].displayScore;
+    } else {
+      // Fallback to raw evaluation with mate handling
+      score = evaluation.mate 
+        ? (evaluation.mate > 0 ? 1000 : -1000)
+        : evaluation.score;
+    }
+    
     return {
       x: xScale(index),
       y: yScale(score),
       score,
       index,
-      classification: moveClassifications[index] || 'none'
+      classification: moveClassifications[index] || 'none',
+      // Add Lichess data if available
+      winProbability: useDisplayEvaluations ? displayEvaluations![index]?.winProbability : undefined,
+      positionAssessment: useDisplayEvaluations ? displayEvaluations![index]?.positionAssessment : undefined,
+      isStable: useDisplayEvaluations ? displayEvaluations![index]?.isStable : undefined
     };
   });
 
   // Create smooth curve using cubic bezier interpolation
+  // Note: Lichess data is already smoothed, so we can use gentler smoothing
   const createSmoothPath = (points: any[]) => {
     if (points.length < 2) return '';
     
     let path = `M ${points[0].x} ${points[0].y}`;
+    
+    // Use less aggressive smoothing if we have Lichess data (already smoothed)
+    const smoothingFactor = useDisplayEvaluations ? 0.1 : 0.15;
     
     for (let i = 1; i < points.length; i++) {
       const prev = points[i - 1];
@@ -81,12 +104,12 @@ export function EvaluationChart({
         const cp2y = current.y;
         path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${current.x} ${current.y}`;
       } else {
-        // Middle segments with smoother curves
+        // Middle segments with Lichess-aware smoothing
         const prevPoint = points[i - 2] || prev;
-        const cp1x = prev.x + (current.x - prevPoint.x) * 0.15;
-        const cp1y = prev.y + (current.y - prevPoint.y) * 0.15;
-        const cp2x = current.x - (next.x - prev.x) * 0.15;
-        const cp2y = current.y - (next.y - prev.y) * 0.15;
+        const cp1x = prev.x + (current.x - prevPoint.x) * smoothingFactor;
+        const cp1y = prev.y + (current.y - prevPoint.y) * smoothingFactor;
+        const cp2x = current.x - (next.x - prev.x) * smoothingFactor;
+        const cp2y = current.y - (next.y - prev.y) * smoothingFactor;
         path += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${current.x} ${current.y}`;
       }
     }

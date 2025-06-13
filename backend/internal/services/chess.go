@@ -163,6 +163,18 @@ func (s *ChessService) ValidateFEN(fen string) error {
 	return nil
 }
 
+// IsWhiteToMove determines if it's White's turn from a FEN string
+func (s *ChessService) IsWhiteToMove(fen string) bool {
+	fenFunc, err := chess.FEN(fen)
+	if err != nil {
+		// Default to white if FEN is invalid
+		return true
+	}
+	
+	game := chess.NewGame(fenFunc)
+	return game.Position().Turn() == chess.White
+}
+
 // GetPositionFromFEN creates a position from FEN
 func (s *ChessService) GetPositionFromFEN(fen string) (*chess.Position, error) {
 	fenFunc, err := chess.FEN(fen)

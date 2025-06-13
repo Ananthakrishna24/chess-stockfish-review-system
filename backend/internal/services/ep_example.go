@@ -19,7 +19,7 @@ func NewEPExample() *EPExample {
 
 // DemonstrateEPCalculation shows how EP calculations work for different scenarios
 func (ep *EPExample) DemonstrateEPCalculation() {
-	fmt.Println("=== Expected Points (EP) Algorithm Demonstration ===\n")
+	fmt.Println("=== Expected Points (EP) Algorithm Demonstration ===")
 	
 	// Example 1: Different player ratings with same position
 	fmt.Println("1. Effect of Player Rating on Expected Points:")
@@ -103,7 +103,7 @@ func (ep *EPExample) demonstrateClassificationThresholds() {
 
 // SimulateGameAnalysis simulates the EP-based analysis process
 func (ep *EPExample) SimulateGameAnalysis() {
-	fmt.Println("\n=== Simulated Game Analysis Process ===\n")
+	fmt.Println("=== Simulated Game Analysis Process ===")
 	
 	// Simulate a few moves from a game
 	moves := []struct {
@@ -178,7 +178,7 @@ func (ep *EPExample) classifyMoveSimple(epLoss float64, moveNumber int, bestMove
 
 // ExplainAlgorithm provides a detailed explanation of the EP algorithm
 func (ep *EPExample) ExplainAlgorithm() {
-	fmt.Println("\n=== Expected Points Algorithm Explanation ===\n")
+	fmt.Println("=== Expected Points Algorithm Explanation ===")
 	
 	fmt.Println("The Expected Points (EP) model calculates win probability based on:")
 	fmt.Println("1. Engine evaluation (in centipawns)")
@@ -216,7 +216,7 @@ func (ep *EPExample) ExplainAlgorithm() {
 
 // CompareWithTraditional compares EP-based analysis with traditional centipawn analysis
 func (ep *EPExample) CompareWithTraditional() {
-	fmt.Println("\n=== EP vs Traditional Analysis Comparison ===\n")
+	fmt.Println("=== EP vs Traditional Analysis Comparison ===")
 	
 	scenarios := []struct {
 		name       string

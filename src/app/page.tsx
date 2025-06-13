@@ -323,6 +323,7 @@ const AnalysisPanel = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-4">
         <EvaluationChart
           evaluations={gameAnalysis.evaluationHistory}
+          displayEvaluations={gameAnalysis.moves?.map(move => move.displayEvaluation).filter(Boolean)}
           currentMoveIndex={currentMoveIndex}
           criticalMoments={gameAnalysis.criticalMoments}
           onMoveClick={goToMove}
@@ -504,38 +505,26 @@ export default function Home() {
     if (!evalHistory || evalHistory.length === 0) return 0;
     
     // For starting position (currentMoveIndex === -1), the evaluation should be 0
-    // The starting position is equal for both sides
     if (chessGame.currentMoveIndex < 0) {
       return 0; // Starting position should always be 0.0 (equal)
     }
     
-    // DEBUG: Log the structure to understand the issue
-    if (chessGame.currentMoveIndex === 0) {
-      console.log('=== EVALUATION DEBUG ===');
-      console.log('Total moves:', chessGame.gameState?.moves.length);
-      console.log('Evaluation history length:', evalHistory.length);
-      console.log('First 5 evaluations:', evalHistory.slice(0, 5).map(e => e.score));
-      console.log('Moves data:', gameAnalysis.moves?.slice(0, 3).map(m => ({
-        san: m.san,
-        evaluation: m.evaluation.score
-      })));
-    }
-    
-    // The issue might be in indexing - let's try different approaches:
-    
-    // APPROACH 1: Use move analysis evaluations (more accurate)
+    // Use move analysis evaluations for accuracy
     if (gameAnalysis.moves && gameAnalysis.moves[chessGame.currentMoveIndex]) {
-      const moveEval = gameAnalysis.moves[chessGame.currentMoveIndex].evaluation.score;
-      console.log(`Move ${chessGame.currentMoveIndex + 1} (${gameAnalysis.moves[chessGame.currentMoveIndex].san}): ${moveEval} centipawns`);
-      return moveEval;
+      return gameAnalysis.moves[chessGame.currentMoveIndex].evaluation.score;
     }
     
-    // APPROACH 2: Fallback to evaluation history
+    // Fallback to evaluation history
     const evalIndex = Math.min(chessGame.currentMoveIndex, evalHistory.length - 1);
-    const rawScore = evalHistory[evalIndex]?.score || 0;
-    console.log(`Move ${chessGame.currentMoveIndex + 1} (fallback): ${rawScore} centipawns`);
+    return evalHistory[evalIndex]?.score || 0;
+  };
+
+  // Get current display evaluation for enhanced visualization
+  const getCurrentDisplayEvaluation = () => {
+    if (!gameAnalysis?.moves || chessGame.currentMoveIndex < 0) return undefined;
     
-    return rawScore;
+    const currentMove = gameAnalysis.moves[chessGame.currentMoveIndex];
+    return currentMove?.displayEvaluation;
   };
 
   const mainContent = chessGame.gameState ? (
@@ -548,6 +537,7 @@ export default function Home() {
           {gameAnalysis && (
             <EvaluationBar 
               evaluation={getCurrentEvaluation()}
+              displayEvaluation={getCurrentDisplayEvaluation()}
               className="h-[750px]" // Match board height only
             />
           )}

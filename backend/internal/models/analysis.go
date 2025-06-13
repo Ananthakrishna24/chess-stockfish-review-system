@@ -74,7 +74,8 @@ type MoveAnalysis struct {
 	Move              string               `json:"move"`
 	SAN               string               `json:"san"`
 	FEN               string               `json:"fen"`
-	Evaluation        EngineEvaluation     `json:"evaluation"`
+	Evaluation        EngineEvaluation     `json:"evaluation"`        // Raw engine evaluation
+	DisplayEvaluation *DisplayEvaluation   `json:"displayEvaluation"` // Stable evaluation for UI
 	Classification    string               `json:"classification"`
 	AlternativeMoves  []AlternativeMove    `json:"alternativeMoves,omitempty"`
 	TacticalAnalysis  *TacticalAnalysis    `json:"tacticalAnalysis,omitempty"`
@@ -85,6 +86,15 @@ type MoveAnalysis struct {
 	MoveAccuracy      float64              `json:"moveAccuracy"`
 	MaterialBalance   MaterialBalanceData  `json:"materialBalance,omitempty"`
 	IsBookMove        bool                 `json:"isBookMove,omitempty"`
+}
+
+// DisplayEvaluation - Stable evaluation for frontend display
+type DisplayEvaluation struct {
+	WinProbability     float64 `json:"winProbability"`     // 0.0 to 1.0 (0 = losing, 1 = winning)
+	DisplayScore       int     `json:"displayScore"`       // Capped centipawn score for display
+	EvaluationBar      float64 `json:"evaluationBar"`      // -1.0 to +1.0 for progress bar
+	PositionAssessment string  `json:"positionAssessment"` // "winning", "slightly_better", "equal", etc.
+	IsStable           bool    `json:"isStable"`           // Whether evaluation has stabilized
 }
 
 // EngineEvaluation - Stockfish evaluation of a position
@@ -172,7 +182,8 @@ type CriticalMoment struct {
 // PositionAnalysisResponse - Response for position analysis
 type PositionAnalysisResponse struct {
 	FEN              string             `json:"fen"`
-	Evaluation       EngineEvaluation   `json:"evaluation"`
+	Evaluation       EngineEvaluation   `json:"evaluation"`       // Raw engine evaluation
+	DisplayEvaluation *DisplayEvaluation `json:"displayEvaluation"` // Stable evaluation for UI
 	AlternativeMoves []AlternativeMove  `json:"alternativeMoves"`
 	PositionInfo     PositionInfo       `json:"positionInfo"`
 }
@@ -274,4 +285,36 @@ type BookMoveInfo struct {
 	OpeningName string `json:"openingName,omitempty"`
 	ECO         string `json:"eco,omitempty"`
 	Depth       int    `json:"depth"` // How deep in the opening
+}
+
+// LichessEvaluation - Lichess-specific evaluation data using precise algorithms
+type LichessEvaluation struct {
+	RawCentipawns      int     `json:"rawCentipawns"`      // Original Stockfish evaluation
+	CappedCentipawns   int     `json:"cappedCentipawns"`   // Capped at ±1000 for display
+	WinProbability     float64 `json:"winProbability"`     // 0.0-1.0 using Lichess sigmoid
+	WinPercentage      float64 `json:"winPercentage"`      // 0-100% for display
+	EvaluationBar      float64 `json:"evaluationBar"`      // -1.0 to +1.0 for UI bar
+	PositionAssessment string  `json:"positionAssessment"` // "winning", "equal", etc.
+	IsStable           bool    `json:"isStable"`           // Whether evaluation is stable
+	IsMateScore        bool    `json:"isMateScore"`        // Whether this is a mate score
+}
+
+// LichessAccuracy - Lichess-specific accuracy calculation
+type LichessAccuracy struct {
+	WinProbBefore  float64 `json:"winProbBefore"`  // Win probability before move
+	WinProbAfter   float64 `json:"winProbAfter"`   // Win probability after move
+	WinProbChange  float64 `json:"winProbChange"`  // Change in win probability
+	MoveAccuracy   float64 `json:"moveAccuracy"`   // 0-100% accuracy using Lichess formula
+	AccuracyLoss   float64 `json:"accuracyLoss"`   // Points lost due to inaccuracy
+}
+
+// LichessGameAnalysis - Enhanced game analysis using Lichess algorithms
+type LichessGameAnalysis struct {
+	GameAnalysis                    // Embed standard analysis
+	LichessEvaluationHistory []*LichessEvaluation `json:"lichessEvaluationHistory"`
+	WhiteLichessAccuracy     float64              `json:"whiteLichessAccuracy"`
+	BlackLichessAccuracy     float64              `json:"blackLichessAccuracy"`
+	AccuracyHistory          []*LichessAccuracy   `json:"accuracyHistory"`
+	SmoothingApplied         bool                 `json:"smoothingApplied"`
+	WindowSize              int                  `json:"windowSize,omitempty"`
 } 
